@@ -40,7 +40,7 @@ jobs:
           function Invoke-SelfTest($exe, $out) {
             $p = Start-Process -FilePath $exe -ArgumentList '--selftest', $out -PassThru
             if (-not $p.WaitForExit(180000)) { Stop-Process -Id $p.Id -Force; Write-Host 'selftest did not exit in 180 s' }
-            if (Test-Path $out) { Get-Content $out -Encoding utf8 } else { Write-Host 'no selftest output' }
+            if (Test-Path $out) { Get-Content $out -Encoding utf8 | Out-Host } else { Write-Host 'no selftest output' }
             return $p.ExitCode
           }
           $code = Invoke-SelfTest 'dist\QRQC\QRQC.exe' "$PWD\selftest.json"
@@ -61,7 +61,7 @@ jobs:
           # 2) 보정 켜고: 반드시 통과 + 표시가 지워졌는지
           $p = Start-Process -FilePath 'motw\QRQC\QRQC.exe' -ArgumentList '--selftest', "$PWD\motw_on.json" -PassThru
           if (-not $p.WaitForExit(180000)) { Stop-Process -Id $p.Id -Force; Write-Host 'selftest did not exit in 180 s' }
-          Get-Content motw_on.json -Encoding utf8
+          Get-Content motw_on.json -Encoding utf8 | Out-Host
           if ($p.ExitCode -ne 0) { throw "selftest with Mark-of-the-Web failed (exit $($p.ExitCode))" }
           $left = Get-ChildItem motw\QRQC -Recurse -Filter *.dll | Where-Object { Get-Item $_.FullName -Stream Zone.Identifier -ErrorAction SilentlyContinue }
           if ($left) { throw "DLLs still marked: $($left.Count)" }
