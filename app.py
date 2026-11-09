@@ -52,7 +52,10 @@ WEB_DIR = os.path.join(resource_dir(), 'web')
 def appdata_dir():
     """PC별 설정 폴더. 윈도우는 %LOCALAPPDATA%\\QRQC (QIS와 같은 이유로 Roaming을 쓰지 않음:
     로밍 프로필이 로그온·로그오프 때 네트워크로 동기화하며 파일을 깨뜨릴 수 있음)."""
-    base = os.environ.get('LOCALAPPDATA') or os.environ.get('APPDATA') or os.path.join(os.path.expanduser('~'), '.config')
+    if sys.platform == 'darwin':
+        base = os.path.join(os.path.expanduser('~'), 'Library', 'Application Support')
+    else:
+        base = os.environ.get('LOCALAPPDATA') or os.environ.get('APPDATA') or os.path.join(os.path.expanduser('~'), '.config')
     p = os.path.join(base, 'QRQC')
     os.makedirs(p, exist_ok=True)
     # v1.2 이하: %APPDATA%\QRQC_Tracker\config.json → 새 위치로 한 번 옮김
@@ -972,10 +975,12 @@ def selftest(out, unblocked=0):
     try:
         step('webview_import')
         import webview  # noqa: F401
-        if sys.platform.startswith('win'):
-            step('webview_winforms')
-            __import__('webview.platforms.winforms')   # .NET(pythonnet) 까지 불러와 봄 — 차단 표시가 남아 있으면 여기서 실패
-        chk('webview', True, 'winforms' if sys.platform.startswith('win') else 'import only')
+        plat = 'winforms' if sys.platform.startswith('win') else 'cocoa' if sys.platform == 'darwin' else None
+        if plat:
+            step('webview_' + plat)
+            # 윈도우: .NET(pythonnet)까지 불러와 봄 — 차단 표시가 남아 있으면 여기서 실패 · 맥: Cocoa(PyObjC)
+            __import__('webview.platforms.' + plat)
+        chk('webview', True, plat or 'import only')
     except Exception as e:
         chk('webview', False, repr(e))
     wd.cancel()

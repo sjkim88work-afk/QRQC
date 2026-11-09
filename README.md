@@ -15,7 +15,9 @@
 
 ## 설치 (Python 필요 없음)
 
-QIS 데스크톱과 같은 방식입니다.
+QIS 데스크톱과 같은 방식입니다. 윈도우 10·11과 맥(Apple Silicon)을 지원합니다.
+
+### 윈도우
 
 1. **[QRQC-windows.zip 내려받기](https://github.com/sjkim88work-afk/QRQC/releases/latest/download/QRQC-windows.zip)** — 항상 최신 버전
 2. zip을 **우클릭 › 압축 풀기**로 풉니다 (zip 안에서 바로 실행하지 마세요)
@@ -25,9 +27,18 @@ QIS 데스크톱과 같은 방식입니다.
 4. `QRQC.exe` 더블클릭 → 처음에 데이터 폴더 지정 (팀이 함께 쓰려면 공유폴더)
    - "Windows의 PC 보호" 창이 뜨면 **추가 정보 › 실행**
 
+### 맥 (Apple Silicon: M1·M2·M3·M4 …)
+
+1. **[QRQC-mac.zip 내려받기](https://github.com/sjkim88work-afk/QRQC/releases/latest/download/QRQC-mac.zip)** → 더블클릭해 압축 풀기
+2. `QRQC.app`을 **응용 프로그램** 폴더로 끌어 옮기기
+3. `QRQC.app`을 **우클릭(control+클릭) › 열기** → 경고 창에서 다시 **열기** (서명하지 않은 사내용 프로그램이라 처음 한 번)
+   - **열기** 버튼이 없으면: **완료**(휴지통으로 이동은 누르지 않기) → **시스템 설정 › 개인정보 보호 및 보안** 아래쪽 `QRQC`의 **그래도 열기**
+   - 그래도 안 되면 터미널에서 한 번: `xattr -dr com.apple.quarantine /Applications/QRQC.app`
+4. 데이터 폴더 지정 — 윈도우 PC들과 같은 공유폴더를 쓰려면 Finder › 이동 › 서버에 연결(`smb://서버/품질`)로 연결한 뒤 그 폴더(`/Volumes/…`)를 고릅니다
+
 관리자 권한은 필요 없습니다. 프로그램은 일반 사용자 권한(asInvoker)으로 실행되고, 설정은 `%LOCALAPPDATA%\QRQC`에 저장합니다.
 
-`main`에 변경이 병합될 때마다 GitHub Actions가 Windows에서 빌드하고, 인터넷에서 받은 파일 표시가 붙은 상태까지 실행 점검을 거쳐 [Releases](https://github.com/sjkim88work-afk/QRQC/releases)에 올립니다.
+`main`에 변경이 병합될 때마다 GitHub Actions가 윈도우와 맥에서 빌드하고, 실행 점검(윈도우는 인터넷에서 받은 파일 표시가 붙은 상태까지)을 거쳐 [Releases](https://github.com/sjkim88work-afk/QRQC/releases)에 올립니다.
 
 ### 개발용 실행 (소스에서)
 
@@ -44,7 +55,7 @@ web/index.html    화면 (외부 CDN 없이 동작)
 1_run.bat         실행
 2_build_exe.bat   PyInstaller 빌드 (packaging/QRQC.spec, 폴더 방식)
 winfix.py         윈도우 시작 보정: 받은 zip의 차단 표시 해제, 오류 안내
-.github/workflows/build-exe.yml   Windows 빌드·실행 점검(--selftest)·Releases 게시
+.github/workflows/build-exe.yml   윈도우·맥 빌드, 실행 점검(--selftest), Releases 게시
 ```
 
 ## 데이터 저장 (SQLite)

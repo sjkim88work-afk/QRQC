@@ -1,7 +1,7 @@
 ﻿공정품질 신속대응회의 · 신속대응 추적표  v1.3.0
 =====================================================
 
-■ 설치 — Python 설치·관리자 권한 필요 없음 (QIS와 같은 방식)
+■ 윈도우 설치 — Python 설치·관리자 권한 필요 없음 (QIS와 같은 방식)
  1. 아래 주소에서 QRQC-windows.zip 을 내려받습니다. (항상 최신 버전)
     https://github.com/sjkim88work-afk/QRQC/releases/latest/download/QRQC-windows.zip
  2. 받은 zip을 우클릭 → [압축 풀기]로 풉니다. zip 안에서 바로 실행하지 마세요.
@@ -22,6 +22,19 @@
     다 둘러본 뒤 [예시 데이터 삭제]를 누르면 예시만 지워집니다.
  7. 새 버전이 나오면 같은 주소에서 받아 압축을 풀고, 기존 QRQC 폴더를 통째로 바꾸면 됩니다.
     데이터는 공유폴더의 qrqc.db에, PC별 설정은 %LOCALAPPDATA%\QRQC 에 있어 그대로 유지됩니다.
+
+■ 맥에서 쓰기 (Apple Silicon: M1·M2·M3·M4 …)
+ 1. 아래 주소에서 QRQC-mac.zip 을 내려받아 더블클릭해 압축을 풉니다.
+    https://github.com/sjkim88work-afk/QRQC/releases/latest/download/QRQC-mac.zip
+ 2. QRQC.app 을 [응용 프로그램] 폴더로 끌어 옮깁니다.
+ 3. QRQC.app 을 우클릭(control+클릭) → [열기] → 경고 창에서 다시 [열기].
+    서명하지 않은 사내용 프로그램이라 처음 한 번만 이렇게 엽니다. 다음부터는 더블클릭.
+    - [열기] 버튼이 없으면: [완료]를 누르고(휴지통으로 이동은 누르지 마세요)
+      시스템 설정 → 개인정보 보호 및 보안 → 아래쪽 QRQC 의 [그래도 열기]
+    - 그래도 안 되면 터미널에서 한 번만: xattr -dr com.apple.quarantine /Applications/QRQC.app
+ 4. 데이터 폴더: 윈도우 PC들과 같은 공유폴더를 쓰려면 Finder → 이동 → 서버에 연결
+    (smb://서버이름/공유폴더)로 연결한 뒤, 데이터 폴더 선택에서 그 폴더(/Volumes/…)를 고릅니다.
+ 5. PC별 설정은 ~/Library/Application Support/QRQC 에 저장됩니다.
 
 ■ (참고) 소스에서 직접 실행·빌드 — Python 3.12 필요
  - 1_run.bat      : 소스로 바로 실행 (첫 실행 때 pywebview 설치)
