@@ -15,14 +15,16 @@
 
 ## 아이폰 · 웹앱 (Microsoft 365)
 
-설치 없이 브라우저로 씁니다. 회사 Microsoft 365 계정으로 로그인하고, 팀 공유 OneDrive/SharePoint 폴더에 저장합니다.
+설치 없이 브라우저로 씁니다. Microsoft 계정(개인 또는 회사)으로 로그인하고, OneDrive(또는 SharePoint) 폴더에 저장합니다.
 
 - 주소: **https://sjkim88work-afk.github.io/QRQC/**
 - 아이폰: Safari로 열고 공유 버튼 › **홈 화면에 추가** → 앱처럼 실행
   - 추적표가 카드 목록으로 보이고, 항목 칸을 누르면 상세 입력 창이 열립니다. [사진 찍기]로 현장 사진을 바로 첨부합니다
 - 처음 한 번: 폴더 담당자가 [내 OneDrive에 새 폴더 만들기] → 그 폴더를 팀원과 **편집 가능**으로 공유 → 팀원은 공유 링크를 붙여넣어 연결
 - 저장: 이슈 1건 = JSON 파일 1개, 첨부는 `files/<이슈>/<항목>/`. 동시에 고치면 eTag로 충돌을 알아채 최신 내용에 합쳐 저장합니다. 지운 것은 OneDrive 휴지통, 파일마다 버전 기록이 남습니다
-- 준비: [IT 앱 등록 요청](docs/IT_앱등록_요청.md) → 받은 ID를 `web/config.js`에 입력 · 저장소 Settings › Pages › Source를 **GitHub Actions**로 설정
+- 준비: 앱 등록 → 받은 ID를 `web/config.js`에 입력 · 저장소 Settings › Pages › Source를 **GitHub Actions**로 설정
+  - 개인 OneDrive: [내 OneDrive에 연결하기](docs/개인_OneDrive_연결.md) (`tenantId: 'consumers'`, 회사 IT 불필요)
+  - 회사 계정: [IT 앱 등록 요청](docs/IT_앱등록_요청.md) (`tenantId`에 회사 테넌트 ID)
 - 데스크톱 프로그램(SQLite)과는 저장 위치가 다릅니다. 한 팀은 한 가지 방식으로 쓰세요
 
 ## 설치 (Python 필요 없음)
