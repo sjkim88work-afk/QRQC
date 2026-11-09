@@ -15,17 +15,24 @@
 
 ## 설치 (Python 필요 없음)
 
-1. **[QRQC_Tracker.exe 내려받기](https://github.com/sjkim88work-afk/QRQC/releases/latest/download/QRQC_Tracker.exe)** — 항상 최신 버전
-2. 내려받은 exe를 더블클릭해 실행
-   - "Windows의 PC 보호" 창이 뜨면 **추가 정보 → 실행** (서명하지 않은 사내용 프로그램이라 처음에 뜨는 안내)
-3. 데이터 폴더 지정 — 팀이 함께 쓰려면 공유폴더(예: `\\서버\품질\신속대응`)
+QIS 데스크톱과 같은 방식입니다.
 
-`main`에 변경이 병합될 때마다 GitHub Actions가 Windows에서 exe를 빌드하고 실행 시험을 거쳐 [Releases](https://github.com/sjkim88work-afk/QRQC/releases)에 올립니다.
+1. **[QRQC-windows.zip 내려받기](https://github.com/sjkim88work-afk/QRQC/releases/latest/download/QRQC-windows.zip)** — 항상 최신 버전
+2. zip을 **우클릭 › 압축 풀기**로 풉니다 (zip 안에서 바로 실행하지 마세요)
+3. 풀린 `QRQC` 폴더를 원하는 곳에 둡니다. 예: `C:\QRQC` 또는 `문서\QRQC`
+   - `QRQC.exe`만 따로 옮기지 말고 **폴더째** 두세요 (`_internal` 폴더가 함께 있어야 합니다)
+   - `C:\Program Files`처럼 관리자 권한이 필요한 위치는 피하세요
+4. `QRQC.exe` 더블클릭 → 처음에 데이터 폴더 지정 (팀이 함께 쓰려면 공유폴더)
+   - "Windows의 PC 보호" 창이 뜨면 **추가 정보 › 실행**
+
+관리자 권한은 필요 없습니다. 프로그램은 일반 사용자 권한(asInvoker)으로 실행되고, 설정은 `%LOCALAPPDATA%\QRQC`에 저장합니다.
+
+`main`에 변경이 병합될 때마다 GitHub Actions가 Windows에서 빌드하고, 인터넷에서 받은 파일 표시가 붙은 상태까지 실행 점검을 거쳐 [Releases](https://github.com/sjkim88work-afk/QRQC/releases)에 올립니다.
 
 ### 개발용 실행 (소스에서)
 
 - `1_run.bat` — Python 3.12 필요, 첫 실행 시 pywebview 설치
-- `2_build_exe.bat` — 직접 `dist\QRQC_Tracker.exe` 빌드
+- `2_build_exe.bat` — 직접 `dist\QRQC\QRQC.exe` 빌드 (폴더째 배포)
 
 자세한 내용은 [README_사용법.txt](README_사용법.txt)를 참고하세요.
 
@@ -35,8 +42,9 @@
 app.py            내장 서버(127.0.0.1 전용) + 프로그램 창(pywebview, 없으면 브라우저)
 web/index.html    화면 (외부 CDN 없이 동작)
 1_run.bat         실행
-2_build_exe.bat   PyInstaller 단일 exe 빌드
-.github/workflows/build-exe.yml   Windows exe 자동 빌드·실행 시험·Releases 게시
+2_build_exe.bat   PyInstaller 빌드 (packaging/QRQC.spec, 폴더 방식)
+winfix.py         윈도우 시작 보정: 받은 zip의 차단 표시 해제, 오류 안내
+.github/workflows/build-exe.yml   Windows 빌드·실행 점검(--selftest)·Releases 게시
 ```
 
 ## 데이터 저장 (SQLite)

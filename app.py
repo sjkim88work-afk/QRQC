@@ -33,7 +33,7 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlparse
 
-VERSION = '1.2.0'
+VERSION = '1.3.0'
 APP_TITLE = '공정품질 신속대응회의'
 IS_WIN = os.name == 'nt'
 DB_NAME = 'qrqc.db'
@@ -50,9 +50,19 @@ WEB_DIR = os.path.join(resource_dir(), 'web')
 
 
 def appdata_dir():
-    base = os.environ.get('APPDATA') or os.path.join(os.path.expanduser('~'), '.config')
-    p = os.path.join(base, 'QRQC_Tracker')
+    """PC별 설정 폴더. 윈도우는 %LOCALAPPDATA%\\QRQC (QIS와 같은 이유로 Roaming을 쓰지 않음:
+    로밍 프로필이 로그온·로그오프 때 네트워크로 동기화하며 파일을 깨뜨릴 수 있음)."""
+    base = os.environ.get('LOCALAPPDATA') or os.environ.get('APPDATA') or os.path.join(os.path.expanduser('~'), '.config')
+    p = os.path.join(base, 'QRQC')
     os.makedirs(p, exist_ok=True)
+    # v1.2 이하: %APPDATA%\QRQC_Tracker\config.json → 새 위치로 한 번 옮김
+    old = os.path.join(os.environ.get('APPDATA') or '', 'QRQC_Tracker', 'config.json')
+    new = os.path.join(p, 'config.json')
+    if os.environ.get('APPDATA') and os.path.isfile(old) and not os.path.exists(new):
+        try:
+            shutil.copyfile(old, new)
+        except OSError:
+            pass
     return p
 
 
@@ -181,7 +191,12 @@ def save_cfg(cfg):
     write_json(CFG_PATH, cfg)
 
 
+DATA_OVERRIDE = None   # --selftest 에서 임시 폴더를 쓰기 위함
+
+
 def data_dir():
+    if DATA_OVERRIDE:
+        return DATA_OVERRIDE
     d = load_cfg().get('dataDir')
     return d if d and os.path.isdir(d) else None
 
@@ -867,6 +882,83 @@ def start_server(port):
     return srv
 
 
+def setup_log():
+    import logging
+    try:
+        d = os.path.join(appdata_dir(), 'logs')
+        os.makedirs(d, exist_ok=True)
+        logging.basicConfig(filename=os.path.join(d, 'qrqc.log'), level=logging.INFO, encoding='utf-8',
+                            format='%(asctime)s %(levelname)s %(message)s')
+    except Exception:
+        pass
+    return logging.getLogger('qrqc')
+
+
+def selftest(out, unblocked=0):
+    """묶음 프로그램에 서버 · 화면 · DB · 첨부 · 창 라이브러리가 모두 들어갔는지 창 없이 확인 (빌드 점검용)."""
+    global DATA_OVERRIDE
+    import urllib.request
+    res = {'version': VERSION, 'platform': sys.platform, 'frozen': bool(getattr(sys, 'frozen', False)),
+           'unblocked': unblocked, 'checks': {}}
+    ok = True
+
+    def chk(name, cond, detail=''):
+        nonlocal ok
+        res['checks'][name] = {'ok': bool(cond), 'detail': str(detail)[:300]}
+        ok = ok and bool(cond)
+
+    tmp = tempfile.mkdtemp(prefix='qrqc_selftest_')
+    srv = None
+    try:
+        DATA_OVERRIDE = tmp
+        srv = start_server(0)
+        base = 'http://127.0.0.1:%d' % PORT
+
+        def call(method, path, body=None, raw=None, ctype='application/json'):
+            data = raw if raw is not None else (json.dumps(body).encode('utf-8') if body is not None else None)
+            req = urllib.request.Request(base + path, data=data, method=method, headers={'Content-Type': ctype})
+            with urllib.request.urlopen(req, timeout=20) as r:
+                return r.read()
+
+        page = call('GET', '/').decode('utf-8')
+        chk('web_files', APP_TITLE in page)
+        chk('config', json.loads(call('GET', '/api/config'))['ok'])
+        call('PUT', '/api/issues/selftest-1', {'no': 'ST-001', 'date': '2026-01-01', 'part': '점검', 'owner': '점검',
+                                               'issue': '자체 점검', 'crit': {'cont': 'G'}})
+        a = json.loads(call('GET', '/api/all'))
+        chk('db_roundtrip', len(a['issues']) == 1 and a['issues'][0]['crit']['cont'] == 'G', a['db']['path'])
+        png = bytes.fromhex('89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d49444154789c63f8cfc0f01f0005000201a0e7b3dc0000000049454e44ae426082')
+        up = json.loads(call('POST', '/api/upload?issue=selftest-1&crit=cont&name=%EC%A0%90%EA%B2%80.png', raw=png,
+                             ctype='application/octet-stream'))
+        chk('attachment', call('GET', '/att/%d' % up['file']['id']) == png, up['file']['name'])
+        chk('db_file', os.path.isfile(os.path.join(tmp, DB_NAME)))
+    except Exception as e:
+        chk('server', False, repr(e))
+    finally:
+        if srv is not None:
+            srv.shutdown()
+        with DB_LOCK:
+            if _CON['con'] is not None:
+                _CON['con'].close()
+            _CON.update(path=None, con=None)
+        DATA_OVERRIDE = None
+        shutil.rmtree(tmp, ignore_errors=True)
+    try:
+        import webview  # noqa: F401
+        if sys.platform.startswith('win'):
+            __import__('webview.platforms.winforms')   # .NET(pythonnet) 까지 불러와 봄 — 차단 표시가 남아 있으면 여기서 실패
+        chk('webview', True, 'winforms' if sys.platform.startswith('win') else 'import only')
+    except Exception as e:
+        chk('webview', False, repr(e))
+    res['ok'] = ok
+    txt = json.dumps(res, ensure_ascii=False, indent=2)
+    if out:
+        with open(out, 'w', encoding='utf-8') as f:
+            f.write(txt)
+    print(txt)
+    return 0 if ok else 1
+
+
 def main():
     global WINDOW
     ap = argparse.ArgumentParser(description=APP_TITLE)
@@ -874,7 +966,15 @@ def main():
     ap.add_argument('--headless', action='store_true', help='창을 열지 않고 내장 서버만 실행 (점검용)')
     ap.add_argument('--port', type=int, default=0)
     ap.add_argument('--data', default='', help='데이터 폴더 지정')
-    a = ap.parse_args()
+    ap.add_argument('--selftest', nargs='?', const='', default=None, metavar='결과.json', help='창 없이 점검 (빌드 확인용)')
+    a, _ = ap.parse_known_args()
+
+    import winfix
+    unblocked = winfix.unblock()   # 받은 zip 의 '인터넷에서 받은 파일' 표시 지우기 (창 라이브러리 전에)
+    if a.selftest is not None:
+        sys.exit(selftest(a.selftest or None, unblocked))
+    log = setup_log()
+    log.info('start v%s frozen=%s unblocked=%d', VERSION, bool(getattr(sys, 'frozen', False)), unblocked)
 
     if a.data:
         os.makedirs(a.data, exist_ok=True)
@@ -902,6 +1002,7 @@ def main():
         try:
             import webview  # pywebview
         except Exception:
+            log.exception('webview import failed')
             webview = None
 
     if webview is not None:
@@ -914,9 +1015,12 @@ def main():
                 webview.start()
             srv.shutdown()
             return
-        except Exception:
-            # 프로그램 창을 띄울 수 없는 PC(WebView2 런타임 없음 등)는 브라우저로 엽니다
+        except Exception as e:
+            # 프로그램 창을 띄울 수 없는 PC(.NET 차단, WebView2 런타임 없음 등)는 이유를 알리고 브라우저로 엽니다
+            log.exception('window start failed')
             WINDOW = None
+            if getattr(sys, 'frozen', False):
+                winfix.message_box(APP_TITLE, winfix.startup_error_text(e), error=False)
 
     webbrowser.open(url)
     print('=' * 60)
