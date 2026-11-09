@@ -1,8 +1,9 @@
-# Windows 실행 파일(QRQC_Tracker.exe) 자동 빌드
-# - Pull Request: 빌드 + 실행 시험만 (결과 exe는 Actions 실행 화면의 Artifacts에서 받을 수 있음)
-# - main 병합: 빌드 + 실행 시험 + Releases에 v<버전> 으로 게시
-#   최신 exe 고정 주소: https://github.com/<owner>/<repo>/releases/latest/download/QRQC_Tracker.exe
-name: Build Windows exe
+# 데스크톱 프로그램 자동 빌드 — QIS 데스크톱과 같은 방식
+#   윈도우: QRQC-windows.zip (QRQC 폴더 · QRQC.exe)      맥(Apple Silicon): QRQC-mac.zip (QRQC.app)
+# - Pull Request: 두 OS에서 빌드 + 실행 점검만 (결과 zip 은 Actions 실행 화면의 Artifacts에서 받을 수 있음)
+# - main 병합: 빌드 + 실행 점검 + Releases에 v<버전> 으로 두 zip 게시
+#   최신 고정 주소: https://github.com/<owner>/<repo>/releases/latest/download/QRQC-windows.zip  (맥: QRQC-mac.zip)
+name: Build desktop apps
 
 on:
   push:
@@ -11,15 +12,24 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: build-exe-${{ github.ref }}
+  group: build-desktop-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   build:
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            name: windows
+          - os: macos-15        # Apple Silicon (arm64)
+            name: mac
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -28,54 +38,105 @@ jobs:
           python-version: '3.12'
 
       - name: Install build tools
-        run: python -m pip install --disable-pip-version-check -r requirements.txt pyinstaller
+        run: python -m pip install --disable-pip-version-check -r requirements-build.txt
 
-      - name: Build QRQC_Tracker.exe
-        run: python -m PyInstaller --noconfirm --clean --onefile --windowed --name QRQC_Tracker --add-data "web;web" app.py
+      - name: Build
+        run: python -m PyInstaller --noconfirm --clean packaging/QRQC.spec
 
-      - name: Smoke test (start exe, create database, save and read an issue)
+      # ---------------- 윈도우
+      - name: Self test (Windows)
+        if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $data = Join-Path $env:RUNNER_TEMP 'qrqc_test'
-          $env:APPDATA = Join-Path $env:RUNNER_TEMP 'appdata'
-          $p = Start-Process -FilePath 'dist\QRQC_Tracker.exe' -ArgumentList '--headless','--port','8790','--data',$data -PassThru
-          $base = 'http://127.0.0.1:8790'
-          $ok = $false
-          for ($i = 0; $i -lt 45; $i++) {
-            Start-Sleep -Seconds 2
-            try { $null = Invoke-RestMethod "$base/api/config"; $ok = $true; break } catch {}
-          }
-          if (-not $ok) { Stop-Process -Id $p.Id -Force; throw 'exe did not start' }
-          $html = Invoke-WebRequest "$base/" -UseBasicParsing
-          if ($html.Content -notmatch '공정품질 신속대응회의') { Stop-Process -Id $p.Id -Force; throw 'screen not served' }
-          $body = @{ no = 'CI-001'; date = '2026-01-01'; part = 'CI'; owner = 'ci'; issue = 'smoke test'; crit = @{ cont = 'G' } } | ConvertTo-Json -Depth 4
-          $null = Invoke-RestMethod -Method Put -Uri "$base/api/issues/ci-1" -Body ([Text.Encoding]::UTF8.GetBytes($body)) -ContentType 'application/json; charset=utf-8'
-          $all = Invoke-RestMethod "$base/api/all"
-          Stop-Process -Id $p.Id -Force
-          if ($all.issues.Count -ne 1 -or $all.issues[0].crit.cont -ne 'G') { throw 'issue round-trip failed' }
-          if (-not (Test-Path (Join-Path $data 'qrqc.db'))) { throw 'database not created' }
-          Write-Host "OK: issue saved and read back, database at $($all.db.path)"
+          $p = Start-Process -FilePath 'dist\QRQC\QRQC.exe' -ArgumentList '--selftest', "$PWD\selftest.json" -PassThru
+          if (-not $p.WaitForExit(180000)) { Stop-Process -Id $p.Id -Force; Write-Host 'selftest did not exit in 180 s' }
+          if (Test-Path selftest.json) { Get-Content selftest.json -Encoding utf8 | Out-Host } else { Write-Host 'no selftest output' }
+          if ($p.ExitCode -ne 0) { throw "selftest failed (exit $($p.ExitCode))" }
+
+      - name: Self test as a zip downloaded from the internet (Windows, Mark-of-the-Web on every file)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Copy-Item -Recurse dist\QRQC motw\QRQC
+          # QRQC.exe 는 사람이 SmartScreen [실행]으로 넘기는 부분이라 빼고, 나머지 모든 파일에 '인터넷에서 받은 파일' 표시
+          Get-ChildItem motw\QRQC -Recurse -File | Where-Object { $_.Name -ne 'QRQC.exe' } | ForEach-Object { Set-Content -Path $_.FullName -Stream Zone.Identifier -Value "[ZoneTransfer]`r`nZoneId=3" }
+          # 1) 보정 없이: 회사 PC 오류가 재현되는지 (정보용)
+          $env:QRQC_NO_UNBLOCK = '1'
+          $p = Start-Process -FilePath 'motw\QRQC\QRQC.exe' -ArgumentList '--selftest', "$PWD\motw_off.json" -PassThru
+          if (-not $p.WaitForExit(180000)) { Stop-Process -Id $p.Id -Force }
+          Write-Host "without unblock: exit $($p.ExitCode) (non-zero = reproduced)"
+          Remove-Item Env:QRQC_NO_UNBLOCK
+          # 2) 보정 켜고: 반드시 통과 + 표시가 지워졌는지
+          $p = Start-Process -FilePath 'motw\QRQC\QRQC.exe' -ArgumentList '--selftest', "$PWD\motw_on.json" -PassThru
+          if (-not $p.WaitForExit(180000)) { Stop-Process -Id $p.Id -Force; Write-Host 'selftest did not exit in 180 s' }
+          Get-Content motw_on.json -Encoding utf8 | Out-Host
+          if ($p.ExitCode -ne 0) { throw "selftest with Mark-of-the-Web failed (exit $($p.ExitCode))" }
+          $left = Get-ChildItem motw\QRQC -Recurse -Filter *.dll | Where-Object { Get-Item $_.FullName -Stream Zone.Identifier -ErrorAction SilentlyContinue }
+          if ($left) { throw "DLLs still marked: $($left.Count)" }
+
+      - name: Check manifest asks for no administrator rights (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $text = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes('dist\QRQC\QRQC.exe'))
+          if ($text -match 'requireAdministrator|highestAvailable') { throw 'manifest requests elevation' }
+          if ($text -notmatch 'asInvoker') { throw 'asInvoker manifest not found' }
+          Write-Host 'OK: requestedExecutionLevel = asInvoker'
+
+      - name: Zip (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Compress-Archive -Path 'dist\QRQC' -DestinationPath 'QRQC-windows.zip'
+
+      # ---------------- 맥
+      - name: Self test and zip (Mac)
+        if: runner.os == 'macOS'
+        run: |
+          file dist/QRQC.app/Contents/MacOS/QRQC
+          codesign --verify --verbose dist/QRQC.app || true
+          set +e
+          dist/QRQC.app/Contents/MacOS/QRQC --selftest "$PWD/selftest.json" > /dev/null &
+          pid=$!
+          for i in $(seq 1 90); do kill -0 $pid 2>/dev/null || break; sleep 2; done
+          if kill -0 $pid 2>/dev/null; then kill -9 $pid; echo "selftest did not exit in 180 s"; fi
+          wait $pid; code=$?
+          set -e
+          cat selftest.json || echo "no selftest output"
+          [ "$code" = "0" ] || { echo "selftest failed (exit $code)"; exit 1; }
+          ditto -c -k --sequesterRsrc --keepParent dist/QRQC.app QRQC-mac.zip
 
       - uses: actions/upload-artifact@v4
         with:
-          name: QRQC_Tracker
-          path: dist/QRQC_Tracker.exe
+          name: QRQC-${{ matrix.name }}
+          path: QRQC-${{ matrix.name }}.zip
           retention-days: 14
 
+  release:
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
       - name: Publish to Releases
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $ver = (Select-String -Path app.py -Pattern "^VERSION = '(.+)'").Matches[0].Groups[1].Value
-          $tag = "v$ver"
-          $sha = "${{ github.sha }}".Substring(0, 7)
-          gh release view $tag *> $null
-          if ($LASTEXITCODE -eq 0) {
-            gh release upload $tag dist/QRQC_Tracker.exe --clobber
-            gh release edit $tag --notes "QRQC_Tracker.exe (Windows, Python 설치 불필요) · 마지막 빌드 $sha"
-          } else {
-            gh release create $tag dist/QRQC_Tracker.exe --target "${{ github.sha }}" --title "QRQC Tracker $tag" --notes "QRQC_Tracker.exe (Windows, Python 설치 불필요) · 빌드 $sha`n`n다운로드한 exe를 더블클릭해 실행하세요. 처음 실행할 때 데이터 폴더(공유폴더 권장)를 지정합니다."
-          }
-          if ($LASTEXITCODE -ne 0) { throw 'release publish failed' }
+          ls -la out
+          ver=$(sed -n "s/^VERSION = '\(.*\)'/\1/p" app.py)
+          tag="v$ver"
+          sha=$(echo "$GITHUB_SHA" | cut -c1-7)
+          notes=$(printf '%s\n\n%s\n%s' "QRQC $tag 데스크톱 프로그램 (Python 설치 불필요) · 빌드 $sha" \
+            "- 윈도우 10·11: QRQC-windows.zip → 압축 풀기 → QRQC 폴더의 QRQC.exe (폴더째 두세요)" \
+            "- 맥(Apple Silicon): QRQC-mac.zip → QRQC.app 을 응용 프로그램 폴더로 → 우클릭 › 열기")
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" out/QRQC-windows.zip out/QRQC-mac.zip --clobber
+            gh release edit "$tag" --notes "$notes"
+          else
+            gh release create "$tag" out/QRQC-windows.zip out/QRQC-mac.zip --target "$GITHUB_SHA" --title "QRQC $tag" --notes "$notes"
+          fi

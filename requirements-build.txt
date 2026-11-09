@@ -1,0 +1,4 @@
+# 데스크톱 프로그램 빌드용
+-r requirements.txt
+pyinstaller>=6.10,<7
+pillow

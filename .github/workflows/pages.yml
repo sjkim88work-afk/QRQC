@@ -1,0 +1,41 @@
+# 웹앱(아이폰 홈 화면 앱 · PC 브라우저)을 GitHub Pages 에 게시
+#   주소: https://sjkim88work-afk.github.io/QRQC/   (IT 앱 등록의 리디렉션 URI 와 같아야 함)
+#   web/ 폴더의 화면 파일만 올립니다. 데이터는 각 사용자의 Microsoft 365(OneDrive · SharePoint)에 있고 여기에는 없습니다.
+#   처음 한 번: 저장소 Settings › Pages › Source 를 'GitHub Actions' 로 바꿔야 게시됩니다.
+name: Deploy web app
+
+on:
+  push:
+    branches: [main]
+    paths: ['web/**', '.github/workflows/pages.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check web files
+        run: |
+          node --check web/graph.js
+          node --check web/sw.js
+          python3 -c "import json;json.load(open('web/manifest.webmanifest'))"
+          grep -q "clientId" web/config.js
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: web
+      - id: deployment
+        uses: actions/deploy-pages@v4

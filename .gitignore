@@ -2,5 +2,7 @@ __pycache__/
 *.pyc
 build/
 dist/
-*.spec
+/*.spec
 .deps_ok
+selftest.json
+motw*/

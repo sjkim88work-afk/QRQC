@@ -2,7 +2,15 @@
 <html lang="ko">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#1f5fd1">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="QRQC">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <title>공정품질 신속대응회의</title>
 <style>
 /* Layout: 상단 회의바 → 회의 순서 → 탭(대시보드 / 추적표 / 결정사항 / 실적 입력 / 설정) */
@@ -174,7 +182,44 @@ body.meet #frt .st{width:34px;height:30px;font-size:16px}
 body.meet #frt td.cr .pd{font-size:12.5px}
 body.meet td.act .clamp{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;cursor:zoom-in}
 body.meet td.act.open .clamp{display:block;cursor:zoom-out}
-.toast{position:fixed;right:16px;bottom:16px;background:var(--ink);color:var(--bg);padding:8px 14px;border-radius:4px;font-size:13px;z-index:50;max-width:calc(100% - 32px)}
+/* ---------- 아이폰 · 좁은 화면 */
+.cards{display:none;gap:8px}
+.icard{background:var(--panel);border:1px solid var(--line);border-left:5px solid var(--sY);border-radius:8px;padding:10px 12px;display:grid;gap:6px;cursor:pointer}
+.icard.R{border-left-color:var(--sR)} .icard.G{border-left-color:var(--sG)}
+.icard .t{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.icard .t b{font:700 14px var(--f-num)}
+.icard .p{font-weight:600}
+.icard .i{font-size:13px;color:var(--ink);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.icard .m{display:flex;justify-content:space-between;gap:8px;font-size:12px;color:var(--muted);flex-wrap:wrap}
+.icard .crits{display:grid;grid-template-columns:repeat(9,1fr);gap:3px}
+.icard .crits button{font:700 11px var(--f-num);border:0;border-radius:5px;height:34px;padding:0;display:grid;place-items:center;line-height:1.1;cursor:pointer}
+.icard .crits button small{display:block;font:500 9px var(--f-ui);opacity:.9}
+.icard .crits .R{background:var(--sR);color:var(--sOn)} .icard .crits .Y{background:var(--sY);color:var(--sYon)} .icard .crits .G{background:var(--sG);color:var(--sOn)} .icard .crits .NA{background:var(--sNA);color:var(--muted);border:1px solid var(--line)}
+.camera{display:none}
+@media (hover:none) and (pointer:coarse){ .camera{display:inline-flex} }
+@media (max-width:760px){
+  body{padding:calc(10px + env(safe-area-inset-top,0px)) max(12px,env(safe-area-inset-right,0px)) calc(28px + env(safe-area-inset-bottom,0px)) max(12px,env(safe-area-inset-left,0px));font-size:15px}
+  header.top{padding-bottom:8px} header h1{font-size:19px} header .sub{display:none}
+  .meta{gap:4px 12px;font-size:12px}
+  .agenda,.tabs{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+  .agenda > button,.tabs button{flex:none}
+  .agenda .run{margin-left:0;flex:none}
+  .tiles{grid-template-columns:repeat(2,1fr)}
+  .tile .v{font-size:22px}
+  body.wide #tblWrap,#vLop .key,.seg,#bMeet,#bExport{display:none}
+  #vLop .cards{display:grid}
+  .toolbar input[type=search]{flex:1 1 100%;width:auto!important}
+  .ovl{padding:0;place-items:stretch}
+  .dlg{width:100%;max-height:100%;height:100%;border-radius:0;padding:calc(14px + env(safe-area-inset-top,0px)) 14px calc(20px + env(safe-area-inset-bottom,0px))}
+  .form{grid-template-columns:1fr 1fr}
+  input,select,textarea{font-size:16px}   /* 아이폰: 입력할 때 화면이 확대되지 않도록 */
+  .btn{padding:8px 12px}
+  .stsel button{flex:1 1 40%;justify-content:center;padding:8px}
+  .pv .ph{padding-top:calc(10px + env(safe-area-inset-top,0px))}
+  .decform{grid-template-columns:1fr 1fr}
+  .dr{grid-template-columns:auto minmax(0,1fr)} .dr > :nth-child(n+3){grid-column:2}
+}
+.toast{position:fixed;right:16px;bottom:calc(16px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--bg);padding:8px 14px;border-radius:4px;font-size:13px;z-index:50;max-width:calc(100% - 32px)}
 </style>
 </head>
 <body>
@@ -248,6 +293,7 @@ body.meet td.act.open .clamp{display:block;cursor:zoom-out}
       <button class="btn pri" id="bAdd">+ 이슈 등록</button>
     </div>
     <div id="editor" class="editor" hidden></div>
+    <div class="cards" id="lopCards"></div>
     <div class="tbl" id="tblWrap"><table id="frt">
       <thead id="frtHead"></thead>
       <tbody id="frtBody"></tbody>
@@ -305,8 +351,13 @@ body.meet td.act.open .clamp{display:block;cursor:zoom-out}
 </div>
 <div class="toast" id="toast" hidden></div>
 
+<script src="config.js"></script>
+<script src="lib/msal-browser.min.js"></script>
+<script src="graph.js"></script>
 <script>
 /* ================= 기본 ================= */
+/* 데스크톱 프로그램(이 PC 안의 내장 서버 127.0.0.1)에서 열리면 'local', 그 밖(웹 주소 · 아이폰)은 Microsoft 365 'm365' */
+const MODE = (location.hostname==='127.0.0.1' && location.port) ? 'local' : 'm365';
 const $ = id => document.getElementById(id);
 const pad = n => String(n).padStart(2,'0');
 const fmt = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
@@ -318,7 +369,8 @@ const esc = s => String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>'
 const clone = o => JSON.parse(JSON.stringify(o));
 const enc = encodeURIComponent;
 const attUrl = id => '/att/' + enc(id);
-const ALLOWED_EXT = ['pdf','png','jpg','jpeg','gif','bmp','webp','xlsx','xlsm','xls','csv'];
+window.QRQC_ISSUES = () => lop;
+const ALLOWED_EXT = ['pdf','png','jpg','jpeg','gif','bmp','webp','heic','xlsx','xlsm','xls','csv'];
 const escRe = t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const fsize = n => n>1048576 ? (n/1048576).toFixed(1)+' MB' : Math.max(1,Math.round((n||0)/1024))+' KB';
 function toast(msg){ const t=$('toast'); t.textContent=msg; t.hidden=false; clearTimeout(t._h); t._h=setTimeout(()=>t.hidden=true,2600); }
@@ -328,6 +380,7 @@ async function copyText(txt){
     let ok=false; try{ ok=document.execCommand('copy'); }catch(_){} ta.remove(); return ok; }
 }
 async function api(method, url, body){
+  if(MODE==='m365') return window.QG.api(method, url, body);
   const opt={method, headers:{}};
   if(body!==undefined){ opt.headers['Content-Type']='application/json'; opt.body=JSON.stringify(body); }
   const r=await fetch(url,opt); const t=await r.text(); let d=null; try{ d=t?JSON.parse(t):null; }catch(e){}
@@ -374,7 +427,7 @@ const newId = () => 'i'+Date.now().toString(36)+Math.random().toString(36).slice
 
 function setBadge(ok, msg){
   const b=$('storeBadge'); b.className='store '+(ok?'ok':'err');
-  b.lastElementChild.textContent = ok ? `데이터 폴더 연결됨` : (msg||'데이터 폴더에 연결할 수 없음');
+  b.lastElementChild.textContent = ok ? (MODE==='m365'?`Microsoft 365 연결됨`:`데이터 폴더 연결됨`) : (msg||(MODE==='m365'?'Microsoft 365에 연결할 수 없음':'데이터 폴더에 연결할 수 없음'));
   b.title = CFG.dataDir||'';
 }
 async function loadAll(){
@@ -384,13 +437,22 @@ async function loadAll(){
     if(DBI.migrated && !loaded) toast('이전 버전 데이터를 데이터베이스로 옮겼습니다: '+DBI.migrated.split(' ').slice(2).join(' '));
     loaded=true; setBadge(true); refresh();
   }catch(e){
-    setBadge(false);
+    setBadge(false, MODE==='m365'&&e.status===0?'오프라인 — 마지막으로 받은 내용 표시 중':'');
+    if(MODE==='m365'){
+      if(e.status===0 && !loaded){ const c=window.QG.cachedAll(); if(c){ lop=c.issues; decs=c.decisions; loaded=true; refresh(); } }
+      else if(e.status===403||e.status===404) openSetup('저장 폴더를 열 수 없습니다. 폴더가 지워졌거나 권한이 없습니다. 폴더 소유자에게 확인하거나 다른 폴더를 연결하세요.');
+      else if(e.status!==0) toast(e.message);
+      return;
+    }
     if(e.status===409) openSetup('데이터 폴더를 찾을 수 없습니다. 공유폴더 연결(네트워크)을 확인하거나 다른 폴더를 지정하세요.');
   }
 }
+let lastPoll=0;
 setInterval(async()=>{
   const now=fmt(new Date()); if(now!==TD){ TD=now; $('mDate').textContent=TD; refresh(); }
   if(document.hidden || !CFG.dataDir || !$('ovl').hidden && setupOpen) return;
+  if(MODE==='m365' && Date.now()-lastPoll<20000) return;   // Microsoft 365: 20초마다 확인
+  lastPoll=Date.now();
   try{ const v=await api('GET','/api/version'); setBadge(true); if(v.version!==VER) await loadAll(); }
   catch(e){ setBadge(false); }
 }, 8000);
@@ -476,9 +538,28 @@ function filtered(){
   return lop.filter(r=>!(hideDone&&isDone(r)) && qfPass(r) && (!fl||r.line===fl) && (!fs||overall(r)===fs) && (!q||[r.no,r.part,r.partNo,r.issue,r.owner,r.model].join(' ').toLowerCase().includes(q)))
     .sort((a,b)=>o[overall(a)]-o[overall(b)] || (b.date||'').localeCompare(a.date||''));
 }
+const CRIT_SHORT={cont:'봉쇄',rca:'원인',act:'개선',ep:'실수',lpa:'LPA',ver:'검증',pfmea:'FMEA',sw:'표준',ll:'교훈'};
+function renderCards(){
+  if(!lop.length){ $('lopCards').innerHTML=`<div class="card">${emptyRow(1).replace(/<\/?(tr|td)[^>]*>/g,'')}</div>`; return; }
+  $('lopCards').innerHTML=filtered().map(r=>{ const o=overall(r), nd=nextDate(r), done=isDone(r), nf=nFiles(r);
+    return `<div class="icard ${o}" data-id="${esc(r.id)}">
+      <div class="t"><span style="display:flex;gap:8px;align-items:center">${stBox(o)}<b>${esc(r.no)}</b>${r.ex?'<span class="ex">예시</span>':''}</span><span class="note">${esc(r.line)}</span></div>
+      <div class="p">${esc(r.part)}${r.recur==='재발'?' <span class="chip bad">재발</span>':''}</div>
+      <div class="i">${esc(r.issue)}</div>
+      <div class="crits">${CRIT.map(c=>{ const s=cState(r,c); return `<button type="button" class="${s}" data-k="${c.k}" aria-label="${c.ko} ${s}">${s==='NA'?'-':s}<small>${CRIT_SHORT[c.k]}</small></button>`; }).join('')}</div>
+      <div class="m"><span>담당 ${esc(r.owner)}</span><span style="${!done&&nd<TD?'color:var(--bad);font-weight:600':''}">${done?'종결':'보고 '+md(nd)}</span>${nf?`<span>첨부 ${nf}</span>`:''}</div></div>`; }).join('')
+    || '<p class="note">조건에 맞는 항목이 없습니다.</p>';
+}
+$('lopCards').onclick=e=>{
+  const card=e.target.closest('.icard'); if(!card) return;
+  const b=e.target.closest('button[data-k]');
+  if(b){ openDetail(card.dataset.id, b.dataset.k); return; }   // 폰에서는 칸을 누르면 바로 상세 입력
+  openEditor(card.dataset.id);
+};
 function renderLop(){
   $('lopCnt').textContent=loaded?`(${lop.filter(r=>!isDone(r)).length})`:'';
   $('bExDel').hidden=!(lop.some(r=>r.ex)||prod.some(p=>p.ex));
+  renderCards();
   if(!lop.length){ $('frtBody').innerHTML=emptyRow(16+CRIT.length); return; }
   $('frtBody').innerHTML=filtered().map(r=>{ const nd=nextDate(r), done=isDone(r);
     return `<tr class="row" data-id="${esc(r.id)}">
@@ -639,10 +720,10 @@ function openDetail(id,k){
       <label>확인자<input id="d-checker" value="${esc(d.checker||'')}" placeholder="${esc(CFG.user||'이름')}"></label>
       <label class="wide">상세내용<textarea id="d-note" style="min-height:140px" placeholder="실행 내용, 수량, 결과, 판정 근거 등">${esc(d.note||'')}</textarea></label>
     </div>
-    <div style="display:grid;gap:8px"><div class="sec">첨부자료 <span class="note" style="font-weight:400">· PDF, 이미지(JPG·PNG 등), 엑셀(XLSX·XLS·CSV) · 파일당 50MB까지 데이터베이스에 원본 저장</span></div>
+    <div style="display:grid;gap:8px"><div class="sec">첨부자료 <span class="note" style="font-weight:400">· PDF, 이미지(JPG·PNG 등), 엑셀(XLSX·XLS·CSV) · 파일당 50MB까지 ${MODE==='m365'?'OneDrive·SharePoint 폴더에':'데이터베이스에'} 원본 저장</span></div>
       <div class="files" id="dFiles"></div>
-      <div class="drop" id="dDrop"><span>파일을 여기로 끌어놓거나 「파일 선택」을 누르세요. 화면 캡처는 Ctrl+V로 바로 붙여넣을 수 있습니다.</span>
-        <label class="btn">파일 선택<input id="dPick" type="file" multiple hidden accept=".pdf,.png,.jpg,.jpeg,.gif,.bmp,.webp,.xlsx,.xlsm,.xls,.csv"></label></div></div>
+      <div class="drop" id="dDrop"><span>${matchMedia('(hover:none) and (pointer:coarse)').matches?'「사진 찍기」로 바로 찍어 올리거나, 「파일 선택」으로 사진·PDF·엑셀을 고르세요.':'파일을 여기로 끌어놓거나 「파일 선택」을 누르세요. 화면 캡처는 Ctrl+V(맥은 ⌘V)로 바로 붙여넣을 수 있습니다.'}</span>
+        <span class="toolbar" style="justify-content:center"><label class="btn camera">사진 찍기<input id="dCam" type="file" accept="image/*" capture="environment" hidden></label><label class="btn">파일 선택<input id="dPick" type="file" multiple hidden accept=".pdf,.png,.jpg,.jpeg,.gif,.bmp,.webp,.heic,.xlsx,.xlsm,.xls,.csv"></label></span></div></div>
     <div class="toolbar"><button class="btn pri" id="dSave">저장</button><span id="dMsg" class="note"></span></div>`;
   $('ovl').hidden=false;
   $('dSt').onclick=e=>{ const b=e.target.closest('button[data-s]'); if(!b) return; dlg.state=b.dataset.s;
@@ -651,6 +732,9 @@ function openDetail(id,k){
   $('dClose').onclick=tryCloseDetail;
   $('dSave').onclick=saveDetail;
   $('dPick').onchange=e=>{ uploadAll([...e.target.files]); e.target.value=''; };
+  $('dCam').onchange=e=>{ const f=e.target.files[0]; e.target.value=''; if(!f) return;
+    const t=new Date(), nm=`현장사진_${TD.replace(/-/g,'')}_${pad(t.getHours())}${pad(t.getMinutes())}${pad(t.getSeconds())}`;
+    const ext=(f.name.split('.').pop()||'jpg').toLowerCase(); uploadAll([new File([f], `${nm}.${ALLOWED_EXT.includes(ext)?ext:'jpg'}`, {type:f.type||'image/jpeg'})]); };
   renderDetailFiles();
   $('dClose').focus();
 }
@@ -674,16 +758,17 @@ function renderDetailFiles(){
   const r=byId(dlg.id); if(!r){ closeDetail(); return; }
   const files=cdOf(r,dlg.k).files||[];
   $('dFiles').innerHTML=files.map((f,i)=>`<div class="fi">
-      <button class="th ${f.kind}" data-open="${i}" aria-label="${esc(f.name)} 열기">${f.kind==='img'?`<img src="${attUrl(f.id)}" alt="" loading="lazy">`:esc((f.ext||'').toUpperCase()||'FILE')}</button>
+      <button class="th ${f.kind}" data-open="${i}" aria-label="${esc(f.name)} 열기">${f.kind==='img'?(MODE==='m365'?`<img data-att="${esc(f.id)}" alt="">`:`<img src="${attUrl(f.id)}" alt="" loading="lazy">`):esc((f.ext||'').toUpperCase()||'FILE')}</button>
       <div class="nm"><b title="${esc(f.name)}">${esc(f.name)}</b><span class="note num">${fsize(f.size)} · ${md(f.at)}${f.by?` · ${esc(f.by)}`:''}</span></div>
       <div class="ac" data-i="${i}"><button class="btn sm" data-open="${i}">열기</button><button class="btn sm" data-saveas="${i}">저장</button><button class="btn sm del" data-rm="${i}">삭제</button></div></div>`).join('')
     || '<span class="note">아직 첨부된 자료가 없습니다.</span>';
+  if(MODE==='m365') $('dFiles').querySelectorAll('img[data-att]').forEach(async img=>{ try{ img.src=await window.QG.attUrl(img.dataset.att); }catch(e){} });
 }
 $('dlg').addEventListener('click',e=>{
   if(!dlg) return; const r=byId(dlg.id); if(!r) return; const files=cdOf(r,dlg.k).files||[];
   const o=e.target.closest('[data-open]'), v=e.target.closest('[data-saveas]'), m=e.target.closest('[data-rm]');
   if(o){ const f=files[+o.dataset.open]; if(f.kind==='img') viewImage(f); else openNative(f); }
-  else if(v){ api('POST','/api/attach/saveas',{att:files[+v.dataset.saveas].id}).then(r=>{ if(r.path) toast('저장했습니다: '+r.path); }).catch(er=>toast(er.message)); }
+  else if(v){ api('POST','/api/attach/saveas',{att:files[+v.dataset.saveas].id}).then(r=>{ if(r.path) toast('저장했습니다: '+r.path); else if(MODE==='m365') toast('내려받기를 시작했습니다'); }).catch(er=>toast(er.message)); }
   else if(m){ m.parentElement.innerHTML=`<span class="confirm">삭제할까요? <button class="btn sm del" data-rmok="${m.dataset.rm}">삭제</button><button class="btn sm" data-rmno>취소</button></span>`; }
   else if(e.target.closest('[data-rmno]')) renderDetailFiles();
   else if(e.target.closest('[data-rmok]')) removeFile(+e.target.closest('[data-rmok]').dataset.rmok);
@@ -706,9 +791,13 @@ async function uploadAll(list){
     if(file.size>50*1048576){ toast(`${file.name}: 파일당 50MB까지 첨부할 수 있습니다`); continue; }
     $('dMsg').textContent=`저장 중… ${file.name}`;
     try{
-      const r=await fetch('/api/upload?'+new URLSearchParams({issue:id,crit:k,name:file.name}),{method:'POST',body:file});
-      const d=await r.json().catch(()=>({}));
-      if(!r.ok) throw new Error(d.error||'첨부하지 못했습니다');
+      let d;
+      if(MODE==='m365') d=await window.QG.upload(id,k,file);
+      else {
+        const r=await fetch('/api/upload?'+new URLSearchParams({issue:id,crit:k,name:file.name}),{method:'POST',body:file});
+        d=await r.json().catch(()=>({}));
+        if(!r.ok) throw new Error(d.error||'첨부하지 못했습니다');
+      }
       upsertLocal('issues', d.issue); refresh(); toast(`${d.file.name} 첨부됨`);
     }catch(e){ toast(e.message||'첨부하지 못했습니다'); }
   }
@@ -721,10 +810,13 @@ async function removeFile(i){
 }
 function openNative(f){ api('POST','/api/open',{att:f.id}).catch(e=>toast(e.message)); }
 let pvFile=null;
-function viewImage(f){ pvFile=f; $('pvName').textContent=f.name; $('pvBody').innerHTML=`<img src="${attUrl(f.id)}" alt="${esc(f.name)}">`; $('pv').hidden=false; }
+async function viewImage(f){ pvFile=f; $('pvName').textContent=f.name; $('pv').hidden=false;
+  if(MODE==='m365'){ $('pvBody').innerHTML='<p class="note">불러오는 중…</p>'; try{ const u=await window.QG.attUrl(f.id); if(pvFile===f) $('pvBody').innerHTML=`<img src="${esc(u)}" alt="${esc(f.name)}">`; }catch(e){ $('pvBody').innerHTML=`<p class="note">${esc(e.message)}</p>`; } return; }
+  $('pvBody').innerHTML=`<img src="${attUrl(f.id)}" alt="${esc(f.name)}">`; }
 function closeViewer(){ $('pv').hidden=true; $('pvBody').innerHTML=''; pvFile=null; }
 $('pvClose').onclick=closeViewer;
 $('pvOpen').onclick=()=>pvFile&&openNative(pvFile);
+if(MODE==='m365') $('pvOpen').textContent='원본 열기';
 document.addEventListener('keydown',e=>{ if(e.key!=='Escape') return; if(!$('pv').hidden) closeViewer(); else if(!$('ovl').hidden && !setupOpen) tryCloseDetail(); });
 
 /* ================= 엑셀 내보내기 ================= */
@@ -863,6 +955,16 @@ $('bMinutes').onclick=async()=>{
 
 /* ================= 설정 ================= */
 function renderSettings(){
+  if(MODE==='m365'){
+    $('sDir').textContent=(window.QG.folder&&window.QG.folder.name)||'(연결되지 않음)';
+    $('sDbInfo').textContent=`Microsoft 365 · ${window.QG.me.name||''} ${window.QG.me.mail?'('+window.QG.me.mail+')':''} · 파일마다 버전 기록이 남고, 지운 항목은 OneDrive/SharePoint 휴지통에서 되살릴 수 있습니다`;
+    $('sBackup').hidden=true; $('sBackups').hidden=true; $('sOpen').textContent='폴더 열기'; $('sChange').textContent='다른 폴더 연결';
+    $('sQuitArea').innerHTML='<button class="btn" id="sLogout" type="button">로그아웃</button>';
+    $('sLogout').onclick=()=>window.QG.logout();
+    $('sInfo').innerHTML=`버전 ${esc(window.QRQC_VERSION||'')} · 웹앱 (Microsoft 365) · 아이폰: Safari 공유 버튼 › 홈 화면에 추가`;
+    $('sLines').value=(S.lines||[]).join('\n'); $('sNoFmt').value=S.noFormat||'PHA-{YY}-{MM}-{NN}'; previewNo();
+    return;
+  }
   $('sDir').textContent=DBI.path||CFG.dataDir||'(지정되지 않음)';
   $('sDbInfo').textContent=DBI.path?`크기 ${fsize(DBI.size)} · 마지막 백업 ${DBI.lastBackup||'없음'}`:'';
   $('sLines').value=(S.lines||[]).join('\n');
@@ -893,7 +995,33 @@ $('sBackup').onclick=async()=>{ try{ const r=await api('POST','/api/backup'); DB
 $('sBackups').onclick=()=>api('POST','/api/open',{backups:true}).catch(e=>toast(e.message));
 $('sOpen').onclick=()=>api('POST','/api/open',{root:true}).catch(e=>toast(e.message));
 
+function openSetupM365(reason){
+  setupOpen=true; dlg=null;
+  $('dlg').innerHTML=`<h3 id="dlgT">저장 폴더 연결</h3>
+    ${reason?`<p style="margin:0;color:var(--bad)">${esc(reason)}</p>`:''}
+    <p style="margin:0">이슈, 첨부, 결정사항을 저장할 OneDrive · SharePoint 폴더를 연결합니다. 팀이 함께 쓰는 폴더 하나를 정하고 모두 같은 폴더를 연결하세요. 폴더에 <b>편집 권한</b>이 있는 사람만 쓸 수 있습니다.</p>
+    <div class="sec">팀 폴더 연결 (팀원)</div>
+    <p class="note" style="margin:0">OneDrive나 SharePoint에서 폴더를 열고 [공유] › [링크 복사]로 받은 링크를 붙여넣으세요.</p>
+    <span class="toolbar" style="flex-wrap:nowrap"><input id="sLink" style="flex:1" placeholder="https://회사-my.sharepoint.com/:f:/…" inputmode="url"><button class="btn pri" id="sLinkGo" type="button">연결</button></span>
+    <div class="sec">처음 시작 (폴더 담당자 한 명)</div>
+    <p class="note" style="margin:0">내 OneDrive에 'QRQC_데이터' 폴더를 만듭니다. 만든 뒤 OneDrive에서 그 폴더를 팀원과 [편집 가능]으로 공유하고, 공유 링크를 팀원에게 보내세요.</p>
+    <div class="toolbar"><button class="btn" id="sCreate" type="button">내 OneDrive에 새 폴더 만들기</button>${window.QG.folder&&!reason?'<button class="btn" id="sCancel" type="button">취소</button>':''}<span class="sp"></span><button class="btn" id="sOut" type="button">로그아웃</button></div>
+    <span id="sMsg" class="note"></span>`;
+  $('ovl').hidden=false;
+  const done=async f=>{ setupOpen=false; $('ovl').hidden=true; CFG.dataDir=f.name; await loadAll(); toast(`'${f.name}' 폴더를 연결했습니다`); if(!$('vSet').hidden) renderSettings(); };
+  $('sLinkGo').onclick=async()=>{ $('sMsg').textContent='연결하는 중…'; try{ await done(await window.QG.connectLink($('sLink').value)); }catch(e){ $('sMsg').innerHTML=`<span style="color:var(--bad)">${esc(e.message)}</span>`; } };
+  $('sCreate').onclick=async()=>{ $('sMsg').textContent='만드는 중…'; try{ await done(await window.QG.createInMyDrive('QRQC_데이터')); }catch(e){ $('sMsg').innerHTML=`<span style="color:var(--bad)">${esc(e.message)}</span>`; } };
+  $('sOut').onclick=()=>window.QG.logout();
+  if($('sCancel')) $('sCancel').onclick=()=>{ setupOpen=false; $('ovl').hidden=true; };
+}
+function m365Gate(title, html, btn, onClick){   // 로그인 전 · IT 등록 전 화면
+  setupOpen=true; dlg=null;
+  $('dlg').innerHTML=`<div style="display:grid;gap:14px;justify-items:start"><img src="icons/icon-192.png" alt="" width="64" height="64" style="border-radius:14px"><h3 id="dlgT">${title}</h3>${html}${btn?`<button class="btn pri" id="gBtn" type="button">${btn}</button>`:''}</div>`;
+  $('ovl').hidden=false;
+  if(btn) $('gBtn').onclick=onClick;
+}
 function openSetup(reason){
+  if(MODE==='m365') return openSetupM365(reason);
   setupOpen=true; dlg=null;
   $('dlg').innerHTML=`<h3 id="dlgT">데이터 폴더 선택</h3>
     ${reason?`<p style="margin:0;color:var(--bad)">${esc(reason)}</p>`:''}
@@ -922,6 +1050,22 @@ function refresh(){
   $('mDate').textContent=TD;
   document.body.classList.toggle('meet',view.meet);
   refresh(); applyView();
+  if(MODE==='m365'){
+    if('serviceWorker' in navigator && location.protocol==='https:') navigator.serviceWorker.register('sw.js').catch(()=>{});
+    setBadge(false,'Microsoft 365 연결 중…');
+    let st;
+    try{ st=await window.QG.init(); }catch(e){ st={state:'error',message:e.message}; }
+    if(st.state==='unconfigured'){ setBadge(false,'준비 중');
+      return m365Gate('IT 앱 등록을 기다리는 중입니다', `<p style="margin:0">이 웹앱은 회사 Microsoft 365 계정으로 로그인해 OneDrive · SharePoint에 저장합니다. 회사 IT에서 앱 등록을 마치면 바로 쓸 수 있습니다.</p><p class="note" style="margin:0">관리자: 저장소의 docs/IT_앱등록_요청.md 를 IT에 전달하고, 받은 ID를 web/config.js 에 넣으세요.</p>`); }
+    if(st.state==='error'){ setBadge(false,'오류'); return m365Gate('시작하지 못했습니다', `<p style="margin:0">${esc(st.message||'')}</p>`, '새로고침', ()=>location.reload()); }
+    if(st.state==='signed-out'){ setBadge(false,'로그인 필요');
+      return m365Gate('공정품질 신속대응회의', `<p style="margin:0">회사 Microsoft 365 계정으로 로그인하세요.</p>${st.message?`<p style="margin:0;color:var(--bad)">${esc(st.message)}</p>`:''}`, 'Microsoft 계정으로 로그인', ()=>window.QG.login()); }
+    CFG=await api('GET','/api/config');
+    $('who').textContent=CFG.user||'—';
+    if(!CFG.ok){ setBadge(false,'저장 폴더 미연결'); openSetup(''); return; }
+    await loadAll();
+    return;
+  }
   try{ CFG=await api('GET','/api/config'); }
   catch(e){ setBadge(false,'프로그램 내부 연결 오류 — 프로그램을 다시 실행하세요'); return; }
   $('who').textContent=CFG.user||'—';
