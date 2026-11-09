@@ -9,7 +9,6 @@
       settings.json          라인 목록, 불량유형, 목표 PPM (모든 사용자 공통)
       issues/<id>.json       신속대응 이슈 1건 = 파일 1개
       decisions/<id>.json    회의 결정사항
-      production/<날짜>.json  일일 생산·불량 실적
       files/<이슈>/<항목>/    첨부자료 원본
       trash/                 삭제한 이슈·첨부 (바로 지우지 않고 옮겨 둠)
       exports/               엑셀 내보내기 파일
@@ -54,7 +53,7 @@ def appdata_dir():
 CFG_PATH = os.path.join(appdata_dir(), 'config.json')
 USER = os.environ.get('USERNAME') or os.environ.get('USER') or getpass.getuser() or 'user'
 COLS = ('issues', 'decisions', 'production')
-SUBDIRS = COLS + ('files', 'trash', 'exports')
+SUBDIRS = ('issues', 'decisions', 'files', 'trash', 'exports')  # production: 이전 버전 실적 데이터(읽기만, 화면 미사용)
 ID_RE = re.compile(r'^[A-Za-z0-9_.\-]{1,80}$')
 CRIT_RE = re.compile(r'^[a-z]{1,12}$')
 DEFAULT_SETTINGS = {
