@@ -33,7 +33,7 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlparse
 
-VERSION = '1.1.0'
+VERSION = '1.2.0'
 APP_TITLE = '공정품질 신속대응회의'
 IS_WIN = os.name == 'nt'
 DB_NAME = 'qrqc.db'
@@ -694,6 +694,11 @@ class Handler(BaseHTTPRequestHandler):
             save_cfg(cfg)
             threading.Thread(target=lambda: _safe_backup(d), daemon=True).start()
             return self.send_json({'dataDir': cfg['dataDir'], 'ok': True})
+        if p == 'quit' and m == 'POST' and WINDOW is None:
+            # 브라우저 모드에서는 콘솔 창이 없을 수 있어 화면에서 종료할 수 있게 함
+            self.send_json({'ok': True})
+            threading.Timer(0.5, lambda: os._exit(0)).start()
+            return
         if p == 'pickdir' and m == 'POST':
             b = self.body_json()
             try:
@@ -900,14 +905,18 @@ def main():
             webview = None
 
     if webview is not None:
-        WINDOW = webview.create_window(APP_TITLE, url, width=1520, height=960, min_size=(960, 640))
-        storage = os.path.join(appdata_dir(), 'webview')
         try:
-            webview.start(private_mode=False, storage_path=storage)
-        except TypeError:
-            webview.start()
-        srv.shutdown()
-        return
+            WINDOW = webview.create_window(APP_TITLE, url, width=1520, height=960, min_size=(960, 640))
+            storage = os.path.join(appdata_dir(), 'webview')
+            try:
+                webview.start(private_mode=False, storage_path=storage)
+            except TypeError:
+                webview.start()
+            srv.shutdown()
+            return
+        except Exception:
+            # 프로그램 창을 띄울 수 없는 PC(WebView2 런타임 없음 등)는 브라우저로 엽니다
+            WINDOW = None
 
     webbrowser.open(url)
     print('=' * 60)

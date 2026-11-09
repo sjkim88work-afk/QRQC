@@ -294,7 +294,7 @@ body.meet td.act.open .clamp{display:block;cursor:zoom-out}
         <div class="toolbar"><button class="btn pri" type="submit">저장</button><span class="note">이미 등록된 이슈의 발견장소·순번은 바뀌지 않습니다. 새로 등록하는 이슈부터 적용됩니다.</span></div>
       </form>
     </div>
-    <div class="card"><h2>프로그램 정보</h2><div class="note" id="sInfo"></div></div>
+    <div class="card"><h2>프로그램 정보</h2><div class="toolbar"><div class="note" id="sInfo"></div><span class="sp"></span><span id="sQuitArea"></span></div></div>
   </section>
 </div>
 
@@ -867,6 +867,8 @@ function renderSettings(){
   $('sDbInfo').textContent=DBI.path?`크기 ${fsize(DBI.size)} · 마지막 백업 ${DBI.lastBackup||'없음'}`:'';
   $('sLines').value=(S.lines||[]).join('\n');
   $('sNoFmt').value=S.noFormat||'PHA-{YY}-{MM}-{NN}'; previewNo();
+  $('sQuitArea').innerHTML=CFG.window?'':'<button class="btn" id="sQuit" type="button">프로그램 종료</button>';
+  if($('sQuit')) $('sQuit').onclick=async()=>{ try{ await api('POST','/api/quit'); }catch(e){} document.body.innerHTML='<p style="padding:40px;font-size:16px">프로그램을 종료했습니다. 이 브라우저 탭을 닫아도 됩니다.</p>'; };
   $('sInfo').innerHTML=`버전 ${esc(CFG.version||'')} · 사용자 ${esc(CFG.user||'')} · ${CFG.window?'프로그램 창':'브라우저'} 모드`;
 }
 $('setForm').onsubmit=async e=>{
