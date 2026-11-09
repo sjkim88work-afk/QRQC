@@ -13,13 +13,19 @@
 - **회의 결정사항**: 담당·기한 관리, 미완료 이월, 회의록 복사
 - **설정**: 데이터베이스 위치·백업, 라인(발견장소) 목록, 순번 형식(`{YYYY}` `{YY}` `{MM}` `{DD}` `{N…}`)
 
-## 실행
+## 설치 (Python 필요 없음)
 
-1. Python 3.12 설치 ("Add python.exe to PATH" 체크)
-2. `1_run.bat` 더블클릭 (첫 실행 시 pywebview 설치)
+1. **[QRQC_Tracker.exe 내려받기](https://github.com/sjkim88work-afk/QRQC/releases/latest/download/QRQC_Tracker.exe)** — 항상 최신 버전
+2. 내려받은 exe를 더블클릭해 실행
+   - "Windows의 PC 보호" 창이 뜨면 **추가 정보 → 실행** (서명하지 않은 사내용 프로그램이라 처음에 뜨는 안내)
 3. 데이터 폴더 지정 — 팀이 함께 쓰려면 공유폴더(예: `\\서버\품질\신속대응`)
 
-배포용 실행 파일: `2_build_exe.bat` → `dist\QRQC_Tracker.exe`
+`main`에 변경이 병합될 때마다 GitHub Actions가 Windows에서 exe를 빌드하고 실행 시험을 거쳐 [Releases](https://github.com/sjkim88work-afk/QRQC/releases)에 올립니다.
+
+### 개발용 실행 (소스에서)
+
+- `1_run.bat` — Python 3.12 필요, 첫 실행 시 pywebview 설치
+- `2_build_exe.bat` — 직접 `dist\QRQC_Tracker.exe` 빌드
 
 자세한 내용은 [README_사용법.txt](README_사용법.txt)를 참고하세요.
 
@@ -30,6 +36,7 @@ app.py            내장 서버(127.0.0.1 전용) + 프로그램 창(pywebview, 
 web/index.html    화면 (외부 CDN 없이 동작)
 1_run.bat         실행
 2_build_exe.bat   PyInstaller 단일 exe 빌드
+.github/workflows/build-exe.yml   Windows exe 자동 빌드·실행 시험·Releases 게시
 ```
 
 ## 데이터 저장 (SQLite)
