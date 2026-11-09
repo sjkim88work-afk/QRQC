@@ -37,9 +37,14 @@ jobs:
       - name: Self test (server, screen, database, attachment, program window components)
         shell: pwsh
         run: |
-          $p = Start-Process -FilePath 'dist\QRQC\QRQC.exe' -ArgumentList '--selftest', "$PWD\selftest.json" -Wait -PassThru
-          Get-Content selftest.json -Encoding utf8
-          if ($p.ExitCode -ne 0) { throw "selftest failed (exit $($p.ExitCode))" }
+          function Invoke-SelfTest($exe, $out) {
+            $p = Start-Process -FilePath $exe -ArgumentList '--selftest', $out -PassThru
+            if (-not $p.WaitForExit(180000)) { Stop-Process -Id $p.Id -Force; Write-Host 'selftest did not exit in 180 s' }
+            if (Test-Path $out) { Get-Content $out -Encoding utf8 } else { Write-Host 'no selftest output' }
+            return $p.ExitCode
+          }
+          $code = Invoke-SelfTest 'dist\QRQC\QRQC.exe' "$PWD\selftest.json"
+          if ($code -ne 0) { throw "selftest failed (exit $code)" }
 
       - name: Self test as a zip downloaded from the internet (Mark-of-the-Web on every file)
         shell: pwsh
@@ -49,11 +54,13 @@ jobs:
           Get-ChildItem motw\QRQC -Recurse -File | Where-Object { $_.Name -ne 'QRQC.exe' } | ForEach-Object { Set-Content -Path $_.FullName -Stream Zone.Identifier -Value "[ZoneTransfer]`r`nZoneId=3" }
           # 1) 보정 없이: 회사 PC 오류가 재현되는지 (정보용)
           $env:QRQC_NO_UNBLOCK = '1'
-          $p = Start-Process -FilePath 'motw\QRQC\QRQC.exe' -ArgumentList '--selftest', "$PWD\motw_off.json" -Wait -PassThru
-          Write-Host "without unblock: exit $($p.ExitCode) (1 = reproduced)"
+          $p = Start-Process -FilePath 'motw\QRQC\QRQC.exe' -ArgumentList '--selftest', "$PWD\motw_off.json" -PassThru
+          if (-not $p.WaitForExit(180000)) { Stop-Process -Id $p.Id -Force }
+          Write-Host "without unblock: exit $($p.ExitCode) (non-zero = reproduced)"
           Remove-Item Env:QRQC_NO_UNBLOCK
           # 2) 보정 켜고: 반드시 통과 + 표시가 지워졌는지
-          $p = Start-Process -FilePath 'motw\QRQC\QRQC.exe' -ArgumentList '--selftest', "$PWD\motw_on.json" -Wait -PassThru
+          $p = Start-Process -FilePath 'motw\QRQC\QRQC.exe' -ArgumentList '--selftest', "$PWD\motw_on.json" -PassThru
+          if (-not $p.WaitForExit(180000)) { Stop-Process -Id $p.Id -Force; Write-Host 'selftest did not exit in 180 s' }
           Get-Content motw_on.json -Encoding utf8
           if ($p.ExitCode -ne 0) { throw "selftest with Mark-of-the-Web failed (exit $($p.ExitCode))" }
           $left = Get-ChildItem motw\QRQC -Recurse -Filter *.dll | Where-Object { Get-Item $_.FullName -Stream Zone.Identifier -ErrorAction SilentlyContinue }

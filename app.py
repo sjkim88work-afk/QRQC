@@ -899,18 +899,41 @@ def selftest(out, unblocked=0):
     global DATA_OVERRIDE
     import urllib.request
     res = {'version': VERSION, 'platform': sys.platform, 'frozen': bool(getattr(sys, 'frozen', False)),
-           'unblocked': unblocked, 'checks': {}}
+           'unblocked': unblocked, 'checks': {}, 'step': 'start'}
     ok = True
+
+    def dump():
+        if out:
+            try:
+                with open(out, 'w', encoding='utf-8') as f:
+                    f.write(json.dumps(res, ensure_ascii=False, indent=2))
+            except OSError:
+                pass
 
     def chk(name, cond, detail=''):
         nonlocal ok
         res['checks'][name] = {'ok': bool(cond), 'detail': str(detail)[:300]}
         ok = ok and bool(cond)
+        dump()   # 단계마다 기록 — 멈추면 어디서 멈췄는지 남도록
+
+    def step(name):
+        res['step'] = name
+        dump()
+
+    def watchdog():   # 점검이 멈추면 기록을 남기고 강제 종료
+        res['ok'] = False
+        res['timeout'] = '120초 안에 끝나지 않음 (멈춘 단계: %s)' % res.get('step')
+        dump()
+        os._exit(3)
+    wd = threading.Timer(120, watchdog)
+    wd.daemon = True
+    wd.start()
 
     tmp = tempfile.mkdtemp(prefix='qrqc_selftest_')
     srv = None
     try:
         DATA_OVERRIDE = tmp
+        step('server')
         srv = start_server(0)
         base = 'http://127.0.0.1:%d' % PORT
 
@@ -920,6 +943,7 @@ def selftest(out, unblocked=0):
             with urllib.request.urlopen(req, timeout=20) as r:
                 return r.read()
 
+        step('http')
         page = call('GET', '/').decode('utf-8')
         chk('web_files', APP_TITLE in page)
         chk('config', json.loads(call('GET', '/api/config'))['ok'])
@@ -935,8 +959,10 @@ def selftest(out, unblocked=0):
     except Exception as e:
         chk('server', False, repr(e))
     finally:
+        step('server_stop')
         if srv is not None:
             srv.shutdown()
+            srv.server_close()
         with DB_LOCK:
             if _CON['con'] is not None:
                 _CON['con'].close()
@@ -944,19 +970,25 @@ def selftest(out, unblocked=0):
         DATA_OVERRIDE = None
         shutil.rmtree(tmp, ignore_errors=True)
     try:
+        step('webview_import')
         import webview  # noqa: F401
         if sys.platform.startswith('win'):
+            step('webview_winforms')
             __import__('webview.platforms.winforms')   # .NET(pythonnet) 까지 불러와 봄 — 차단 표시가 남아 있으면 여기서 실패
         chk('webview', True, 'winforms' if sys.platform.startswith('win') else 'import only')
     except Exception as e:
         chk('webview', False, repr(e))
+    wd.cancel()
     res['ok'] = ok
-    txt = json.dumps(res, ensure_ascii=False, indent=2)
-    if out:
-        with open(out, 'w', encoding='utf-8') as f:
-            f.write(txt)
-    print(txt)
-    return 0 if ok else 1
+    res['step'] = 'done'
+    dump()
+    try:
+        print(json.dumps(res, ensure_ascii=False, indent=2))
+        sys.stdout.flush()
+    except Exception:
+        pass
+    # .NET(pythonnet)을 불러온 뒤 정상 종료 처리에서 멈추는 경우가 있어 바로 끝냄
+    os._exit(0 if ok else 1)
 
 
 def main():
