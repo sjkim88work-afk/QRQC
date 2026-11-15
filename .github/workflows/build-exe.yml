@@ -133,7 +133,7 @@ jobs:
           sha=$(echo "$GITHUB_SHA" | cut -c1-7)
           notes=$(printf '%s\n\n%s\n%s' "QRQC $tag 데스크톱 프로그램 (Python 설치 불필요) · 빌드 $sha" \
             "- 윈도우 10·11: QRQC-windows.zip → 압축 풀기 → QRQC 폴더의 QRQC.exe (폴더째 두세요)" \
-            "- 맥(Apple Silicon): QRQC-mac.zip → QRQC.app 을 응용 프로그램 폴더로 → 우클릭 › 열기")
+            "- 맥(Apple Silicon): QRQC-mac.zip → QRQC.app 을 응용 프로그램 폴더로 → 터미널에서 xattr -dr com.apple.quarantine /Applications/QRQC.app → 실행")
           if gh release view "$tag" >/dev/null 2>&1; then
             gh release upload "$tag" out/QRQC-windows.zip out/QRQC-mac.zip --clobber
             gh release edit "$tag" --notes "$notes"

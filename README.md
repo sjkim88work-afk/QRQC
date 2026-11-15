@@ -15,14 +15,16 @@
 
 ## 아이폰 · 웹앱 (Microsoft 365)
 
-설치 없이 브라우저로 씁니다. 회사 Microsoft 365 계정으로 로그인하고, 팀 공유 OneDrive/SharePoint 폴더에 저장합니다.
+설치 없이 브라우저로 씁니다. Microsoft 계정(개인 또는 회사)으로 로그인하고, OneDrive(또는 SharePoint) 폴더에 저장합니다.
 
 - 주소: **https://sjkim88work-afk.github.io/QRQC/**
 - 아이폰: Safari로 열고 공유 버튼 › **홈 화면에 추가** → 앱처럼 실행
   - 추적표가 카드 목록으로 보이고, 항목 칸을 누르면 상세 입력 창이 열립니다. [사진 찍기]로 현장 사진을 바로 첨부합니다
 - 처음 한 번: 폴더 담당자가 [내 OneDrive에 새 폴더 만들기] → 그 폴더를 팀원과 **편집 가능**으로 공유 → 팀원은 공유 링크를 붙여넣어 연결
 - 저장: 이슈 1건 = JSON 파일 1개, 첨부는 `files/<이슈>/<항목>/`. 동시에 고치면 eTag로 충돌을 알아채 최신 내용에 합쳐 저장합니다. 지운 것은 OneDrive 휴지통, 파일마다 버전 기록이 남습니다
-- 준비: [IT 앱 등록 요청](docs/IT_앱등록_요청.md) → 받은 ID를 `web/config.js`에 입력 · 저장소 Settings › Pages › Source를 **GitHub Actions**로 설정
+- 준비: 앱 등록 → 받은 ID를 `web/config.js`에 입력 · 저장소 Settings › Pages › Source를 **GitHub Actions**로 설정
+  - 개인 OneDrive: [내 OneDrive에 연결하기](docs/개인_OneDrive_연결.md) (`tenantId: 'consumers'`, 회사 IT 불필요)
+  - 회사 계정: [IT 앱 등록 요청](docs/IT_앱등록_요청.md) (`tenantId`에 회사 테넌트 ID)
 - 데스크톱 프로그램(SQLite)과는 저장 위치가 다릅니다. 한 팀은 한 가지 방식으로 쓰세요
 
 ## 설치 (Python 필요 없음)
@@ -43,9 +45,13 @@ QIS 데스크톱과 같은 방식입니다. 윈도우 10·11과 맥(Apple Silico
 
 1. **[QRQC-mac.zip 내려받기](https://github.com/sjkim88work-afk/QRQC/releases/latest/download/QRQC-mac.zip)** → 더블클릭해 압축 풀기
 2. `QRQC.app`을 **응용 프로그램** 폴더로 끌어 옮기기
-3. `QRQC.app`을 **우클릭(control+클릭) › 열기** → 경고 창에서 다시 **열기** (서명하지 않은 사내용 프로그램이라 처음 한 번)
-   - **열기** 버튼이 없으면: **완료**(휴지통으로 이동은 누르지 않기) → **시스템 설정 › 개인정보 보호 및 보안** 아래쪽 `QRQC`의 **그래도 열기**
-   - 그래도 안 되면 터미널에서 한 번: `xattr -dr com.apple.quarantine /Applications/QRQC.app`
+3. **터미널**을 열고 아래 한 줄을 실행합니다 (인터넷에서 받은 표시 지우기 — 처음 한 번)
+   ```
+   xattr -dr com.apple.quarantine /Applications/QRQC.app
+   ```
+   - 이걸 하지 않으면 "'QRQC'은(는) 손상되었기 때문에 열 수 없습니다"가 뜹니다. 파일이 망가진 게 아니라 Apple 공증을 받지 않은 앱을 macOS가 막는 것이니 **[휴지통으로 이동]은 누르지 말고 [취소]** 후 위 명령을 실행하세요
+   - "확인되지 않은 개발자" 경고만 뜨면 **우클릭 › 열기**나 **시스템 설정 › 개인정보 보호 및 보안 › 그래도 열기**로도 열 수 있습니다
+   - 설치 없이 쓰려면 맥에서도 웹앱 주소(https://sjkim88work-afk.github.io/QRQC/)를 Safari·Chrome으로 열면 됩니다
 4. 데이터 폴더 지정 — 윈도우 PC들과 같은 공유폴더를 쓰려면 Finder › 이동 › 서버에 연결(`smb://서버/품질`)로 연결한 뒤 그 폴더(`/Volumes/…`)를 고릅니다
 
 관리자 권한은 필요 없습니다. 프로그램은 일반 사용자 권한(asInvoker)으로 실행되고, 설정은 `%LOCALAPPDATA%\QRQC`에 저장합니다.

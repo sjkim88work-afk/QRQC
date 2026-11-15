@@ -427,7 +427,7 @@ const newId = () => 'i'+Date.now().toString(36)+Math.random().toString(36).slice
 
 function setBadge(ok, msg){
   const b=$('storeBadge'); b.className='store '+(ok?'ok':'err');
-  b.lastElementChild.textContent = ok ? (MODE==='m365'?`Microsoft 365 연결됨`:`데이터 폴더 연결됨`) : (msg||(MODE==='m365'?'Microsoft 365에 연결할 수 없음':'데이터 폴더에 연결할 수 없음'));
+  b.lastElementChild.textContent = ok ? (MODE==='m365'?`OneDrive 연결됨`:`데이터 폴더 연결됨`) : (msg||(MODE==='m365'?'Microsoft 365에 연결할 수 없음':'데이터 폴더에 연결할 수 없음'));
   b.title = CFG.dataDir||'';
 }
 async function loadAll(){
@@ -1002,7 +1002,7 @@ function openSetupM365(reason){
     <p style="margin:0">이슈, 첨부, 결정사항을 저장할 OneDrive · SharePoint 폴더를 연결합니다. 팀이 함께 쓰는 폴더 하나를 정하고 모두 같은 폴더를 연결하세요. 폴더에 <b>편집 권한</b>이 있는 사람만 쓸 수 있습니다.</p>
     <div class="sec">팀 폴더 연결 (팀원)</div>
     <p class="note" style="margin:0">OneDrive나 SharePoint에서 폴더를 열고 [공유] › [링크 복사]로 받은 링크를 붙여넣으세요.</p>
-    <span class="toolbar" style="flex-wrap:nowrap"><input id="sLink" style="flex:1" placeholder="https://회사-my.sharepoint.com/:f:/…" inputmode="url"><button class="btn pri" id="sLinkGo" type="button">연결</button></span>
+    <span class="toolbar" style="flex-wrap:nowrap"><input id="sLink" style="flex:1" placeholder="https://1drv.ms/f/… 또는 https://…sharepoint.com/:f:/…" inputmode="url"><button class="btn pri" id="sLinkGo" type="button">연결</button></span>
     <div class="sec">처음 시작 (폴더 담당자 한 명)</div>
     <p class="note" style="margin:0">내 OneDrive에 'QRQC_데이터' 폴더를 만듭니다. 만든 뒤 OneDrive에서 그 폴더를 팀원과 [편집 가능]으로 공유하고, 공유 링크를 팀원에게 보내세요.</p>
     <div class="toolbar"><button class="btn" id="sCreate" type="button">내 OneDrive에 새 폴더 만들기</button>${window.QG.folder&&!reason?'<button class="btn" id="sCancel" type="button">취소</button>':''}<span class="sp"></span><button class="btn" id="sOut" type="button">로그아웃</button></div>
@@ -1056,10 +1056,10 @@ function refresh(){
     let st;
     try{ st=await window.QG.init(); }catch(e){ st={state:'error',message:e.message}; }
     if(st.state==='unconfigured'){ setBadge(false,'준비 중');
-      return m365Gate('IT 앱 등록을 기다리는 중입니다', `<p style="margin:0">이 웹앱은 회사 Microsoft 365 계정으로 로그인해 OneDrive · SharePoint에 저장합니다. 회사 IT에서 앱 등록을 마치면 바로 쓸 수 있습니다.</p><p class="note" style="margin:0">관리자: 저장소의 docs/IT_앱등록_요청.md 를 IT에 전달하고, 받은 ID를 web/config.js 에 넣으세요.</p>`); }
+      return m365Gate('앱 등록을 기다리는 중입니다', `<p style="margin:0">이 웹앱은 Microsoft 계정으로 로그인해 OneDrive에 저장합니다. Microsoft에 앱 등록을 마치고 받은 ID를 넣으면 바로 쓸 수 있습니다.</p><p class="note" style="margin:0">관리자: 개인 OneDrive는 docs/개인_OneDrive_연결.md, 회사 계정은 docs/IT_앱등록_요청.md 를 따라 등록한 뒤, 받은 ID를 web/config.js 에 넣으세요.</p>`); }
     if(st.state==='error'){ setBadge(false,'오류'); return m365Gate('시작하지 못했습니다', `<p style="margin:0">${esc(st.message||'')}</p>`, '새로고침', ()=>location.reload()); }
     if(st.state==='signed-out'){ setBadge(false,'로그인 필요');
-      return m365Gate('공정품질 신속대응회의', `<p style="margin:0">회사 Microsoft 365 계정으로 로그인하세요.</p>${st.message?`<p style="margin:0;color:var(--bad)">${esc(st.message)}</p>`:''}`, 'Microsoft 계정으로 로그인', ()=>window.QG.login()); }
+      return m365Gate('공정품질 신속대응회의', `<p style="margin:0">Microsoft 계정으로 로그인하세요.${(window.QRQC_CONFIG||{}).tenantId==='consumers'?' (개인 계정: outlook.com · hotmail.com 등)':''}</p>${st.message?`<p style="margin:0;color:var(--bad)">${esc(st.message)}</p>`:''}`, 'Microsoft 계정으로 로그인', ()=>window.QG.login()); }
     CFG=await api('GET','/api/config');
     $('who').textContent=CFG.user||'—';
     if(!CFG.ok){ setBadge(false,'저장 폴더 미연결'); openSetup(''); return; }

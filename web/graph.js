@@ -1,6 +1,7 @@
 /* QRQC · Microsoft 365 연결 (웹앱 · 아이폰 홈 화면 앱용)
  *
- * 회사 Microsoft 계정으로 로그인하고, 팀이 함께 쓰는 OneDrive/SharePoint 폴더 하나에 저장합니다.
+ * Microsoft 계정(개인 계정 또는 회사 계정)으로 로그인하고, 팀이 함께 쓰는 OneDrive/SharePoint 폴더 하나에 저장합니다.
+ * 로그인할 수 있는 계정 종류는 config.js 의 tenantId 로 정합니다: 'consumers'(개인 계정만) · 회사 테넌트 ID(그 회사만) · 'common'(둘 다).
  *   <폴더>/settings.json            라인 목록, 순번 형식
  *   <폴더>/issues/<id>.json         이슈 1건 = 파일 1개
  *   <폴더>/decisions/<id>.json      회의 결정사항
@@ -46,7 +47,7 @@
     if (!CFG.clientId) return { state: 'unconfigured' };
     if (!window.msal) return { state: 'error', message: '로그인 구성요소를 불러오지 못했습니다. 인터넷 연결을 확인하고 새로고침하세요.' };
     pca = new msal.PublicClientApplication({
-      auth: { clientId: CFG.clientId, authority: 'https://login.microsoftonline.com/' + (CFG.tenantId || 'organizations'), redirectUri: location.origin + location.pathname },
+      auth: { clientId: CFG.clientId, authority: 'https://login.microsoftonline.com/' + (CFG.tenantId || 'common'), redirectUri: location.origin + location.pathname },
       cache: { cacheLocation: 'localStorage' },
     });
     await pca.initialize();
