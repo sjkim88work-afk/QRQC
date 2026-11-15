@@ -16,10 +16,13 @@
 import argparse
 import getpass
 import glob
+import hashlib
+import hmac
 import json
 import mimetypes
 import os
 import re
+import secrets
 import shutil
 import sqlite3
 import subprocess
@@ -31,9 +34,9 @@ import webbrowser
 from contextlib import contextmanager
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, unquote, urlparse
+from urllib.parse import parse_qs, quote, unquote, urlparse
 
-VERSION = '1.8.0'
+VERSION = '1.9.0'
 APP_TITLE = '공정품질 신속대응회의'
 IS_WIN = os.name == 'nt'
 DB_NAME = 'qrqc.db'
@@ -75,6 +78,7 @@ ID_RE = re.compile(r'^[A-Za-z0-9_.\-]{1,80}$')
 CRITS = ('cont', 'rca', 'act', 'ep', 'lpa', 'ver', 'pfmea', 'sw', 'll')
 STATES = ('R', 'Y', 'G', 'NA')
 DEFAULT_SETTINGS = {
+    'autoLogoutMin': 30,   # 로그인 후 조작이 없으면 보기 전용으로 돌아가는 시간(분)
     'lines': ['윈도우레귤레이터 1라인', '도어래치 조립 2라인', 'PSD 모터 조립', '프레스 3공정', '사출 성형'],
     'noFormat': 'PHA-{YY}-{MM}-{NN}',
 }
@@ -168,6 +172,15 @@ SELECT i.no AS 순번, i.part AS 품명, l.log_date AS 실행일, l.kind AS 구�
        l.amends AS 정정대상, l.created_by AS 작성자, l.created_at AS 작성일시
 FROM issue_log l JOIN issues i ON i.id = l.issue_id
 ORDER BY i.no, l.log_date, l.id;
+-- 편집 권한 계정: 보기는 누구나, 수정은 로그인한 사람만 (계정이 하나도 없으면 누구나 수정 — 처음 설치 상태)
+CREATE TABLE IF NOT EXISTS users(
+  id TEXT PRIMARY KEY,           -- 로그인 아이디
+  name TEXT NOT NULL,            -- 기록에 남는 이름
+  role TEXT NOT NULL DEFAULT 'editor',   -- admin(사용자 · 기준 정보 관리) / editor(이슈 · 기록 편집)
+  pw_salt TEXT NOT NULL, pw_hash TEXT NOT NULL,   -- PBKDF2-SHA256
+  active INTEGER NOT NULL DEFAULT 1,
+  created_by TEXT, created_at TEXT, updated_at TEXT, last_login TEXT
+);
 CREATE VIEW IF NOT EXISTS v_issues AS
 SELECT i.no AS 순번, i.found_date AS 발견일자, i.model AS 차종, i.part AS 품명, i.part_no AS 품번, i.line AS 발견장소,
        i.issue AS 문제내용, i.recur AS 재발유무, i.dept AS 주관부서, i.owner AS 담당,
@@ -188,7 +201,7 @@ GROUP BY i.id;
 """
 
 DB_LOCK = threading.RLock()
-_CON = {'path': None, 'con': None}
+_CON = {'path': None, 'con': None, 'ro': False}   # ro: 데이터 폴더가 읽기 전용(보기만)
 WINDOW = None
 PORT = 0
 
@@ -266,10 +279,26 @@ def open_db(d):
     con = sqlite3.connect(p, timeout=30, isolation_level=None, check_same_thread=False)
     con.row_factory = sqlite3.Row
     con.execute('PRAGMA busy_timeout=30000')
-    con.execute('PRAGMA journal_mode=DELETE')  # 공유폴더에서는 WAL을 쓰면 안 됨
-    con.execute('PRAGMA foreign_keys=ON')
-    init_db(con, d)
-    _CON.update(path=p, con=con)
+    ro = False
+    try:
+        con.execute('PRAGMA journal_mode=DELETE')  # 공유폴더에서는 WAL을 쓰면 안 됨
+        con.execute('PRAGMA foreign_keys=ON')
+        init_db(con, d)
+    except sqlite3.OperationalError as e:
+        # 폴더 권한이 '읽기 전용'이면 보기 전용으로 엶 (IT가 보기만 할 사람에게 읽기 권한만 준 경우)
+        if not os.path.isfile(p) or not any(w in str(e).lower() for w in ('readonly', 'read-only', 'unable to open', 'disk i/o')):
+            raise
+        con.close()
+        up = p.replace('\\', '/')
+        if re.match(r'^[A-Za-z]:/', up):   # C:/… → /C:/…
+            up = '/' + up
+        uri = 'file:' + ('//' if up.startswith('//') else '') + quote(up, safe='/:') + '?mode=ro'
+        con = sqlite3.connect(uri, uri=True, timeout=30, isolation_level=None, check_same_thread=False)
+        con.row_factory = sqlite3.Row
+        con.execute('PRAGMA busy_timeout=30000')
+        con.execute('SELECT 1 FROM issues LIMIT 1')
+        ro = True
+    _CON.update(path=p, con=con, ro=ro)
     return con
 
 
@@ -401,8 +430,8 @@ def add_log(con, iid, b):
                       'VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
                       (iid, str(b.get('date') or now_str()[:10])[:10], str(b.get('kind') or '')[:40], str(b.get('party') or '')[:120],
                        str(b.get('method') or '')[:40], content[:4000], str(b.get('result') or '').strip()[:4000],
-                       1 if b.get('auto') else 0, amends, USER, now_str()))
-    con.execute('UPDATE issues SET updated_by = ?, updated_at = ? WHERE id = ?', (USER, now_str(), iid))
+                       1 if b.get('auto') else 0, amends, who(), now_str()))
+    con.execute('UPDATE issues SET updated_by = ?, updated_at = ? WHERE id = ?', (who(), now_str(), iid))
     return cur.lastrowid
 
 
@@ -411,7 +440,7 @@ def load_issue(con, iid):
 
 
 def save_issue(con, iid, o, by=None, at=None):
-    by, at = by or USER, at or now_str()
+    by, at = by or who(), at or now_str()
     vals = [str(o.get(k) or '').strip() for k, _ in ISSUE_FIELDS]
     if not vals[0]:
         raise ApiError(400, '순번을 입력하세요')
@@ -458,7 +487,7 @@ def load_decisions(con, only_id=None):
 
 
 def save_decision(con, did, o, by=None, at=None):
-    by, at = by or USER, at or now_str()
+    by, at = by or who(), at or now_str()
     cols = [c for _, c in DEC_FIELDS]
     vals = [(int(o.get(k) or 0) if c == 'seq' else str(o.get(k) or '')) for k, c in DEC_FIELDS]
     con.execute(
@@ -475,6 +504,107 @@ def deep_merge(a, b):
         else:
             a[k] = v
     return a
+
+
+# ---------------------------------------------------------------- 로그인 (보기는 누구나, 수정은 로그인한 사람만)
+# 이 프로그램은 PC마다 따로 실행되므로 로그인 상태도 이 PC의 이 프로그램 안에만 있습니다.
+# 참고: 공유폴더에 쓰기 권한이 있는 사람은 다른 도구로 DB 파일을 직접 고칠 수 있으므로, 보기만 할 사람은
+#       IT에 요청해 폴더를 '읽기 전용'으로 주는 것이 가장 확실합니다 (이 프로그램은 읽기 전용 폴더도 열 수 있음).
+AUTH = {'id': None, 'name': None, 'role': None, 'last': 0.0}
+AUTH_LOCK = threading.Lock()
+PBKDF2_ROUNDS = 200000
+
+
+def pw_hash(password, salt):
+    return hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), bytes.fromhex(salt), PBKDF2_ROUNDS).hex()
+
+
+def who():
+    return AUTH['name'] or USER
+
+
+def users_exist(con):
+    try:
+        return con.execute('SELECT 1 FROM users WHERE active = 1 LIMIT 1').fetchone() is not None
+    except sqlite3.Error:
+        return False
+
+
+def logout_timeout(con):
+    try:
+        return max(5, min(480, int(get_settings(con).get('autoLogoutMin') or 30)))
+    except (TypeError, ValueError):
+        return 30
+
+
+def auth_state(con):
+    required = users_exist(con)
+    with AUTH_LOCK:
+        if AUTH['id']:
+            r = con.execute('SELECT name, role, active FROM users WHERE id = ?', (AUTH['id'],)).fetchone()
+            expired = time.time() - AUTH['last'] > logout_timeout(con) * 60
+            if r is None or not r['active'] or expired:
+                AUTH.update(id=None, name=None, role=None, last=0.0)
+                AUTH['expired'] = bool(expired)
+            else:
+                AUTH.update(name=r['name'], role=r['role'])
+        left = int(logout_timeout(con) * 60 - (time.time() - AUTH['last'])) if AUTH['id'] else 0
+        if _CON.get('ro'):
+            return {'required': required, 'id': None, 'name': None, 'role': None, 'canEdit': False, 'isAdmin': False,
+                    'readonlyFolder': True, 'timeoutMin': 0, 'secondsLeft': 0, 'expired': False}
+        return {'required': required, 'id': AUTH['id'], 'name': AUTH['name'], 'role': AUTH['role'],
+                'canEdit': (not required) or bool(AUTH['id']), 'isAdmin': (not required) or AUTH['role'] == 'admin',
+                'timeoutMin': logout_timeout(con), 'secondsLeft': max(0, left), 'expired': AUTH.pop('expired', False)}
+
+
+def require_edit(con, admin=False):
+    if _CON.get('ro'):
+        raise ApiError(403, '이 PC는 데이터 폴더를 읽기 전용으로 연결해서 보기만 할 수 있습니다')
+    st = auth_state(con)
+    if not st['canEdit']:
+        raise ApiError(401, '로그인이 필요합니다. 보기는 누구나 할 수 있지만, 수정은 편집 권한이 있는 사람만 할 수 있습니다')
+    if admin and not st['isAdmin']:
+        raise ApiError(403, '관리자만 할 수 있습니다')
+    with AUTH_LOCK:
+        if AUTH['id']:
+            AUTH['last'] = time.time()
+
+
+def user_row(r):
+    return {'id': r['id'], 'name': r['name'], 'role': r['role'], 'active': bool(r['active']),
+            'createdAt': r['created_at'] or '', 'lastLogin': r['last_login'] or ''}
+
+
+def save_user(con, b, creating):
+    uid = str(b.get('id') or '').strip()
+    if not re.match(r'^[A-Za-z0-9_.\-]{2,40}$', uid):
+        raise ApiError(400, '아이디는 영문 · 숫자 2~40자로 입력하세요')
+    name = str(b.get('name') or '').strip()[:40]
+    role = 'admin' if b.get('role') == 'admin' else 'editor'
+    pw = str(b.get('password') or '')
+    cur = con.execute('SELECT * FROM users WHERE id = ?', (uid,)).fetchone()
+    if creating and cur is not None:
+        raise ApiError(409, '이미 있는 아이디입니다')
+    if cur is None:
+        if not name:
+            raise ApiError(400, '이름을 입력하세요')
+        if len(pw) < 4:
+            raise ApiError(400, '비밀번호는 4자 이상으로 정하세요')
+        salt = secrets.token_hex(16)
+        con.execute('INSERT INTO users(id, name, role, pw_salt, pw_hash, active, created_by, created_at, updated_at) VALUES(?, ?, ?, ?, ?, 1, ?, ?, ?)',
+                    (uid, name, role, salt, pw_hash(pw, salt), who(), now_str(), now_str()))
+    else:
+        if pw:
+            if len(pw) < 4:
+                raise ApiError(400, '비밀번호는 4자 이상으로 정하세요')
+            salt = secrets.token_hex(16)
+            con.execute('UPDATE users SET pw_salt = ?, pw_hash = ? WHERE id = ?', (salt, pw_hash(pw, salt), uid))
+        if 'active' in b:
+            con.execute('UPDATE users SET active = ? WHERE id = ?', (1 if b.get('active') else 0, uid))
+        con.execute('UPDATE users SET name = ?, role = ?, updated_at = ? WHERE id = ?', (name or cur['name'], role, now_str(), uid))
+    if not con.execute("SELECT 1 FROM users WHERE active = 1 AND role = 'admin'").fetchone():
+        raise ApiError(400, '관리자는 한 명 이상 있어야 합니다')
+    return uid
 
 
 def check_format(fmt):
@@ -684,10 +814,22 @@ class Handler(BaseHTTPRequestHandler):
 
     def body_bytes(self, limit=None):
         n = int(self.headers.get('Content-Length') or 0)
+        self._body_done = True
         if limit and n > limit:
             self.rfile.read(n)
             raise ApiError(413, '파일이 너무 큽니다 (최대 %dMB)' % (limit // 1048576))
         return self.rfile.read(n) if n else b''
+
+    def drain(self):
+        # 본문을 읽기 전에 오류로 끝나면(예: 로그인 필요) 남은 본문을 버려야 다음 요청이 깨지지 않음 (keep-alive)
+        if not getattr(self, '_body_done', False):
+            n = int(self.headers.get('Content-Length') or 0)
+            if 0 < n <= MAX_ATTACH * 4:
+                try:
+                    self.rfile.read(n)
+                except OSError:
+                    pass
+            self._body_done = True
 
     def body_json(self):
         b = self.body_bytes()
@@ -717,6 +859,7 @@ class Handler(BaseHTTPRequestHandler):
         self.route('DELETE')
 
     def route(self, m):
+        self._body_done = False
         u = urlparse(self.path)
         path = unquote(u.path)
         q = {k: v[0] for k, v in parse_qs(u.query).items()}
@@ -744,15 +887,23 @@ class Handler(BaseHTTPRequestHandler):
                     return self.send_bytes(f.read(), ctype)
             raise ApiError(404, 'not found')
         except ApiError as e:
+            self.drain()
             self.send_json({'error': e.msg}, e.code)
         except sqlite3.OperationalError as e:
+            self.drain()
             msg = '다른 사용자가 저장 중이라 잠시 기다렸지만 끝나지 않았습니다. 다시 시도하세요' if 'locked' in str(e) else '데이터베이스 오류: %s' % e
             self.send_json({'error': msg}, 503)
         except (ConnectionError, BrokenPipeError):
             pass
         except Exception as e:
             try:
+                self.drain()
                 self.send_json({'error': '처리 중 오류: %s' % e}, 500)
+            except Exception:
+                pass
+        finally:
+            try:
+                self.drain()   # 본문을 쓰지 않는 요청(로그아웃 등)도 남은 본문을 비움
             except Exception:
                 pass
 
@@ -779,7 +930,8 @@ class Handler(BaseHTTPRequestHandler):
                     f.write('ok')
                 os.remove(probe)
             except OSError as e:
-                raise ApiError(400, '이 폴더에 저장할 권한이 없습니다 (%s)' % e.strerror)
+                if not os.path.isfile(db_path(d)):   # 읽기 전용 폴더는 이미 DB가 있을 때만 (보기 전용으로) 연결
+                    raise ApiError(400, '이 폴더에 저장할 권한이 없습니다 (%s)' % e.strerror)
             with DB_LOCK:
                 try:
                     open_db(d)
@@ -823,6 +975,7 @@ class Handler(BaseHTTPRequestHandler):
                     raise ApiError(400, '잘못된 기록 번호입니다')
             with DB_LOCK:
                 con, _ = get_db()
+                require_edit(con)
                 if not load_issue(con, iid):
                     raise ApiError(404, '이슈를 찾을 수 없습니다')
                 if log_id is not None and not con.execute('SELECT 1 FROM issue_log WHERE id = ? AND issue_id = ?', (log_id, iid)).fetchone():
@@ -830,8 +983,8 @@ class Handler(BaseHTTPRequestHandler):
                 with tx(con):
                     cur = con.execute('INSERT INTO attachments(issue_id, crit, name, ext, kind, size, data, created_by, created_at, log_id) '
                                       'VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                                      (iid, crit, name, ext, ALLOWED[ext][0], len(data), sqlite3.Binary(data), USER, now_str(), log_id))
-                    con.execute('UPDATE issues SET updated_by = ?, updated_at = ? WHERE id = ?', (USER, now_str(), iid))
+                                      (iid, crit, name, ext, ALLOWED[ext][0], len(data), sqlite3.Binary(data), who(), now_str(), log_id))
+                    con.execute('UPDATE issues SET updated_by = ?, updated_at = ? WHERE id = ?', (who(), now_str(), iid))
                 aid = cur.lastrowid
                 issue = load_issue(con, iid)
                 files = next(e for e in issue['log'] if e['id'] == log_id)['files'] if log_id is not None else issue['cd'][crit]['files']
@@ -844,12 +997,70 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json({
                     'issues': list(load_issues(con).values()), 'decisions': list(load_decisions(con).values()),
                     'production': [], 'settings': get_settings(con), 'version': rev(con), 'dataDir': d,
-                    'usedNos': [r[0] for r in con.execute('SELECT no FROM issues')],
+                    'usedNos': [r[0] for r in con.execute('SELECT no FROM issues')], 'auth': auth_state(con),
                     'db': {'path': db_path(d), 'size': os.path.getsize(db_path(d)), 'lastBackup': last_backup(d),
                            'migrated': (con.execute("SELECT value FROM meta WHERE key = 'json_migrated'").fetchone() or [''])[0]}})
             if p == 'version' and m == 'GET':
-                return self.send_json({'version': rev(con)})
+                return self.send_json({'version': rev(con), 'auth': auth_state(con)})
+            if p == 'auth' and m == 'GET':
+                return self.send_json(auth_state(con))
+            if p == 'auth/setup' and m == 'POST':   # 처음 관리자 만들기 (계정이 하나도 없을 때만)
+                if users_exist(con):
+                    raise ApiError(409, '이미 계정이 있습니다. 관리자에게 계정을 요청하세요')
+                b = self.body_json()
+                with tx(con):
+                    uid = save_user(con, dict(b, role='admin'), True)
+                r = con.execute('SELECT * FROM users WHERE id = ?', (uid,)).fetchone()
+                with AUTH_LOCK:
+                    AUTH.update(id=uid, name=r['name'], role='admin', last=time.time())
+                return self.send_json(auth_state(con))
+            if p == 'auth/login' and m == 'POST':
+                b = self.body_json()
+                uid, pw = str(b.get('id') or '').strip(), str(b.get('password') or '')
+                r = con.execute('SELECT * FROM users WHERE id = ? AND active = 1', (uid,)).fetchone()
+                if r is None or not hmac.compare_digest(pw_hash(pw, r['pw_salt']), r['pw_hash']):
+                    time.sleep(0.8)
+                    raise ApiError(401, '아이디 또는 비밀번호가 맞지 않습니다')
+                with AUTH_LOCK:
+                    AUTH.update(id=uid, name=r['name'], role=r['role'], last=time.time())
+                try:
+                    with tx(con):
+                        con.execute('UPDATE users SET last_login = ? WHERE id = ?', (now_str(), uid))
+                except sqlite3.Error:
+                    pass
+                return self.send_json(auth_state(con))
+            if p == 'auth/logout' and m == 'POST':
+                with AUTH_LOCK:
+                    AUTH.update(id=None, name=None, role=None, last=0.0)
+                return self.send_json(auth_state(con))
+            if p == 'auth/touch' and m == 'POST':   # 화면을 쓰는 동안 자동 로그아웃 시간을 늘림
+                st = auth_state(con)
+                with AUTH_LOCK:
+                    if AUTH['id']:
+                        AUTH['last'] = time.time()
+                return self.send_json(auth_state(con) if st['id'] else st)
+            if p == 'auth/password' and m == 'POST':   # 내 비밀번호 바꾸기
+                st = auth_state(con)
+                if not st['id']:
+                    raise ApiError(401, '로그인이 필요합니다')
+                b = self.body_json()
+                r = con.execute('SELECT * FROM users WHERE id = ?', (st['id'],)).fetchone()
+                if not hmac.compare_digest(pw_hash(str(b.get('old') or ''), r['pw_salt']), r['pw_hash']):
+                    raise ApiError(400, '지금 비밀번호가 맞지 않습니다')
+                with tx(con):
+                    save_user(con, {'id': st['id'], 'name': r['name'], 'role': r['role'], 'password': str(b.get('new') or '')}, False)
+                return self.send_json({'ok': True})
+            if p == 'users' and m == 'GET':
+                require_edit(con, admin=True)
+                return self.send_json([user_row(r) for r in con.execute('SELECT * FROM users ORDER BY role, id')])
+            if p == 'users' and m == 'POST':
+                require_edit(con, admin=True)
+                b = self.body_json()
+                with tx(con):
+                    save_user(con, b, bool(b.get('create')))
+                return self.send_json([user_row(r) for r in con.execute('SELECT * FROM users ORDER BY role, id')])
             if p == 'settings' and m == 'PUT':
+                require_edit(con, admin=True)
                 b = self.body_json()
                 s = get_settings(con)
                 if 'lines' in b:
@@ -859,17 +1070,24 @@ class Handler(BaseHTTPRequestHandler):
                     s['lines'] = lines
                 if 'noFormat' in b:
                     s['noFormat'] = check_format(b['noFormat'])
+                if 'autoLogoutMin' in b:
+                    try:
+                        s['autoLogoutMin'] = max(5, min(480, int(b['autoLogoutMin'])))
+                    except (TypeError, ValueError):
+                        raise ApiError(400, '자동 로그아웃 시간은 분 단위 숫자로 입력하세요')
                 with tx(con):
-                    for k in ('lines', 'noFormat'):
+                    for k in ('lines', 'noFormat', 'autoLogoutMin'):
                         con.execute('INSERT INTO settings(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
                                     (k, json.dumps(s[k], ensure_ascii=False)))
                 return self.send_json(get_settings(con))
             if p == 'backup' and m == 'POST':
+                require_edit(con)
                 t = backup(d)
                 return self.send_json({'path': t, 'lastBackup': last_backup(d)})
 
             parts = p.split('/')
             if len(parts) == 3 and parts[0] == 'issues' and parts[2] == 'log' and m == 'POST':
+                require_edit(con)
                 iid = parts[1]
                 if not ID_RE.match(iid):
                     raise ApiError(400, '잘못된 문서 번호입니다')
@@ -892,6 +1110,8 @@ class Handler(BaseHTTPRequestHandler):
                     if o is None:
                         raise ApiError(404, '찾을 수 없습니다')
                     return self.send_json(o)
+                if m in ('PUT', 'PATCH', 'DELETE'):
+                    require_edit(con)
                 if m in ('PUT', 'PATCH'):
                     b = self.body_json()
                     b.pop('id', None)
@@ -905,17 +1125,18 @@ class Handler(BaseHTTPRequestHandler):
                     return self.send_json(load(con, did))
                 if m == 'DELETE':
                     with tx(con):
-                        con.execute('UPDATE %s SET deleted_by = ?, deleted_at = ? WHERE id = ?' % table, (USER, now_str(), did))
+                        con.execute('UPDATE %s SET deleted_by = ?, deleted_at = ? WHERE id = ?' % table, (who(), now_str(), did))
                     return self.send_json({'deleted': True})
 
             if p == 'attach/delete' and m == 'POST':
+                require_edit(con)
                 b = self.body_json()
                 r = att_row(con, b.get('att'))
                 if r['crit'] == 'log':
                     raise ApiError(403, '조치 · 진행 기록의 증빙은 지울 수 없습니다')
                 with tx(con):
-                    con.execute('UPDATE attachments SET deleted_by = ?, deleted_at = ? WHERE id = ?', (USER, now_str(), r['id']))
-                    con.execute('UPDATE issues SET updated_by = ?, updated_at = ? WHERE id = ?', (USER, now_str(), r['issue_id']))
+                    con.execute('UPDATE attachments SET deleted_by = ?, deleted_at = ? WHERE id = ?', (who(), now_str(), r['id']))
+                    con.execute('UPDATE issues SET updated_by = ?, updated_at = ? WHERE id = ?', (who(), now_str(), r['issue_id']))
                 return self.send_json({'issue': load_issue(con, r['issue_id'])})
             if p == 'open' and m == 'POST':
                 b = self.body_json()
@@ -1001,6 +1222,7 @@ def setup_log():
 def selftest(out, unblocked=0):
     """묶음 프로그램에 서버 · 화면 · DB · 첨부 · 창 라이브러리가 모두 들어갔는지 창 없이 확인 (빌드 점검용)."""
     global DATA_OVERRIDE
+    import urllib.error
     import urllib.request
     res = {'version': VERSION, 'platform': sys.platform, 'frozen': bool(getattr(sys, 'frozen', False)),
            'unblocked': unblocked, 'checks': {}, 'step': 'start'}
@@ -1060,6 +1282,17 @@ def selftest(out, unblocked=0):
                              ctype='application/octet-stream'))
         chk('attachment', call('GET', '/att/%d' % up['file']['id']) == png, up['file']['name'])
         chk('db_file', os.path.isfile(os.path.join(tmp, DB_NAME)))
+        step('auth')   # 계정을 만들면 로그인 전에는 수정이 막히고, 로그인하면 수정됨
+        call('POST', '/api/auth/setup', {'id': 'selftest', 'name': '점검', 'password': 'selftest'})
+        call('POST', '/api/auth/logout', {})
+        try:
+            call('PATCH', '/api/issues/selftest-1', {'model': 'X'})
+            blocked = False
+        except urllib.error.HTTPError as he:
+            blocked = he.code == 401
+        call('POST', '/api/auth/login', {'id': 'selftest', 'password': 'selftest'})
+        by = json.loads(call('PATCH', '/api/issues/selftest-1', {'model': 'Y'})).get('updatedBy')
+        chk('auth', blocked and by == '점검', 'blocked=%s by=%s' % (blocked, by))
     except Exception as e:
         chk('server', False, repr(e))
     finally:

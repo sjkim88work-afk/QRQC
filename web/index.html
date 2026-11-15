@@ -163,6 +163,13 @@ tbody tr.row.sel td{background:var(--soft)} tbody tr.row.sel td.stk1{box-shadow:
 .chip.acc{background:var(--soft);color:var(--accent)}
 .act .lgc{display:block;font-size:11px;color:var(--accent);margin-top:2px}
 #printArea{display:none}
+/* 보기 전용(로그인 전): 수정 버튼 · 입력란 숨김 */
+body.ro .w{display:none!important}
+.auth{display:inline-flex;align-items:center;gap:6px}
+.auth .chip{font-size:11.5px}
+.ugrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;align-items:end}
+.ugrid label{display:grid;gap:3px;font-size:12px;color:var(--muted)}
+.utbl td,.utbl th{padding:6px 8px;font-size:13px}
 @media print{
   body{background:#fff;padding:0;zoom:1!important} body > *:not(#printArea){display:none!important}
   #printArea{display:block;color:#000;font:12px/1.5 var(--f-ui)} #printArea h1{font-size:16px;margin:0 0 4px}
@@ -275,6 +282,7 @@ body.meet td.act.open .clamp{display:block;cursor:zoom-out}
     <div class="meta">
       <span>회의일 <b class="num" id="mDate"></b></span>
       <span>사용자 <b id="who">—</b></span>
+      <span class="auth" id="authBox"></span>
       <span class="store" id="storeBadge"><i></i><span>연결 중…</span></span>
     </div>
   </header>
@@ -330,9 +338,9 @@ body.meet td.act.open .clamp{display:block;cursor:zoom-out}
         <button class="btn" id="bZp" aria-label="확대">A+</button>
       </span>
       <span class="sp"></span>
-      <button class="btn del" id="bExDel" hidden>예시 데이터 삭제</button>
+      <button class="btn del w" id="bExDel" hidden>예시 데이터 삭제</button>
       <button class="btn" id="bExport">엑셀로 내보내기</button>
-      <button class="btn pri" id="bAdd">+ 이슈 등록</button>
+      <button class="btn pri w" id="bAdd">+ 이슈 등록</button>
     </div>
     <div id="edScrim" class="edscrim" hidden></div>
     <div id="editor" class="editor modal" hidden role="dialog" aria-modal="true" aria-label="이슈 상세"></div>
@@ -365,9 +373,10 @@ body.meet td.act.open .clamp{display:block;cursor:zoom-out}
             <div class="toolbar"><button class="btn sm" type="button" data-fmt="PHA-{YY}-{MM}-{NN}">PHA-YY-MM-연번</button><button class="btn sm" type="button" data-fmt="QRQC-{YYYY}-{NNN}">연도별</button><button class="btn sm" type="button" data-fmt="FR-{NNNN}">계속 증가</button></div>
           </div>
         </div>
-        <div class="toolbar"><button class="btn pri" type="submit">저장</button><span class="note">이미 등록된 이슈의 발견장소·순번은 바뀌지 않습니다. 새로 등록하는 이슈부터 적용됩니다.</span></div>
+        <div class="toolbar"><button class="btn pri" type="submit" id="setSave">저장</button><span class="note" id="setNote">이미 등록된 이슈의 발견장소·순번은 바뀌지 않습니다. 새로 등록하는 이슈부터 적용됩니다.</span></div>
       </form>
     </div>
+    <div class="card" id="authCard" hidden><h2>사용자 · 편집 권한 <small>보기는 누구나 · 수정은 로그인한 사람만</small></h2><div id="authBody" style="display:grid;gap:10px"></div></div>
     <div class="card"><h2>프로그램 정보</h2><div class="toolbar"><div class="note" id="sInfo"></div><span class="sp"></span><span id="sQuitArea"></span></div></div>
   </section>
 </div>
@@ -424,8 +433,90 @@ async function api(method, url, body){
   const opt={method, headers:{}};
   if(body!==undefined){ opt.headers['Content-Type']='application/json'; opt.body=JSON.stringify(body); }
   const r=await fetch(url,opt); const t=await r.text(); let d=null; try{ d=t?JSON.parse(t):null; }catch(e){}
-  if(!r.ok){ const e=new Error((d&&d.error)||`오류 (${r.status})`); e.status=r.status; throw e; }
+  if(!r.ok){ const e=new Error((d&&d.error)||`오류 (${r.status})`); e.status=r.status;
+    if(r.status===401 && !String(url).startsWith('/api/auth')){ refreshAuth(); setTimeout(()=>loginDialog('수정하려면 로그인하세요. 보기는 로그인 없이 할 수 있습니다.'),0); }
+    throw e; }
   return d;
+}
+
+/* ================= 로그인 (데스크톱 프로그램 · 보기는 누구나, 수정은 로그인한 사람만) ================= */
+let AUTH={required:false, canEdit:true, isAdmin:true, id:null, name:null};
+let lastTouch=0;
+function lockRO(root){ if(!root || AUTH.canEdit) return; root.querySelectorAll('input,select,textarea').forEach(e=>{ if(!e.closest('.edtop')) e.disabled=true; }); }
+function applyAuth(a){
+  if(!a || MODE!=='local') return;
+  const key=x=>[x.required,x.id,x.role,x.name,x.canEdit,x.readonlyFolder,x.timeoutMin].join('|');
+  const changed=key(a)!==key(AUTH), was=AUTH.canEdit; AUTH=a;
+  if(!changed && !a.expired) return;
+  document.body.classList.toggle('ro', !AUTH.canEdit);
+  const b=$('authBox');
+  if(AUTH.readonlyFolder) b.innerHTML='<span class="chip none" title="데이터 폴더 권한이 읽기 전용입니다">보기 전용 (읽기 전용 폴더)</span>';
+  else if(!AUTH.required) b.innerHTML='';
+  else if(!AUTH.id) b.innerHTML='<span class="chip none">보기 전용</span><button class="btn sm" type="button" id="bLogin">로그인</button>';
+  else b.innerHTML=`<span class="chip ok" title="${AUTH.timeoutMin}분 동안 조작이 없으면 자동 로그아웃">편집 중 · ${esc(AUTH.name)}${AUTH.role==='admin'?' (관리자)':''}</span><button class="btn sm" type="button" id="bLogout">로그아웃</button>`;
+  if($('bLogin')) $('bLogin').onclick=()=>loginDialog('');
+  if($('bLogout')) $('bLogout').onclick=async()=>{ applyAuth(await api('POST','/api/auth/logout',{})); toast('로그아웃했습니다 — 보기 전용'); };
+  $('who').textContent=(AUTH.id&&AUTH.name)||CFG.user||'—';
+  if(was!==AUTH.canEdit){
+    if(!AUTH.canEdit && a.expired) toast(`${AUTH.timeoutMin||30}분 동안 조작이 없어 자동 로그아웃했습니다 — 보기 전용`);
+    if(edId && !$('editor').hidden) openEditor(edId);
+    if(dlg && !$('ovl').hidden && !setupOpen) closeDetail();
+  }
+  if(!$('vSet').hidden) renderSettings();
+}
+async function refreshAuth(){ if(MODE!=='local') return; try{ applyAuth(await api('GET','/api/auth')); }catch(e){} }
+document.addEventListener('pointerdown',touchAuth,true); document.addEventListener('keydown',touchAuth,true);
+async function touchAuth(){ if(MODE!=='local' || !AUTH.id || Date.now()-lastTouch<60000) return; lastTouch=Date.now(); try{ applyAuth(await api('POST','/api/auth/touch',{})); }catch(e){} }
+function loginDialog(msg){
+  if(MODE!=='local') return;
+  if(AUTH.readonlyFolder){ toast('이 PC는 데이터 폴더를 읽기 전용으로 연결해서 보기만 할 수 있습니다'); return; }
+  if(!AUTH.required){ show('set'); toast('편집 권한을 쓰려면 먼저 관리자 계정을 만드세요'); return; }
+  if(dlg && !$('ovl').hidden && !setupOpen) closeDetail();
+  setupOpen=true; dlg=null;
+  $('dlg').innerHTML=`<h3 id="dlgT">로그인</h3>${msg?`<p class="note" style="margin:0">${esc(msg)}</p>`:''}
+    <form id="lgnF" style="display:grid;gap:10px;max-width:360px">
+      <label class="form" style="display:grid;gap:3px;font-size:12px;color:var(--muted)">아이디<input id="lgnId" autocomplete="username" required></label>
+      <label class="form" style="display:grid;gap:3px;font-size:12px;color:var(--muted)">비밀번호<input id="lgnPw" type="password" autocomplete="current-password" required></label>
+      <div class="toolbar"><button class="btn pri" type="submit">로그인</button><button class="btn" type="button" id="lgnNo">취소</button><span class="note" id="lgnMsg"></span></div>
+      <span class="note">계정이 없으면 관리자에게 요청하세요. ${AUTH.timeoutMin||30}분 동안 조작이 없으면 자동으로 로그아웃됩니다.</span>
+    </form>`;
+  $('ovl').hidden=false; $('lgnId').focus();
+  $('lgnNo').onclick=()=>{ setupOpen=false; $('ovl').hidden=true; };
+  $('lgnF').onsubmit=async e=>{ e.preventDefault(); $('lgnMsg').textContent='확인 중…';
+    try{ const a=await api('POST','/api/auth/login',{id:$('lgnId').value.trim(), password:$('lgnPw').value}); setupOpen=false; $('ovl').hidden=true; applyAuth(a); lastTouch=Date.now(); toast(`${a.name}님, 편집할 수 있습니다`); }
+    catch(er){ $('lgnMsg').innerHTML=`<span style="color:var(--bad)">${esc(er.message)}</span>`; $('lgnPw').select(); } };
+}
+async function renderAuthCard(){
+  const card=$('authCard'); card.hidden=MODE!=='local'; if(card.hidden) return;
+  const B=$('authBody');
+  const pwForm=`<div class="sec">내 비밀번호 바꾸기</div><form id="pwF" class="ugrid"><label>지금 비밀번호<input id="pwOld" type="password" required></label><label>새 비밀번호 (4자 이상)<input id="pwNew" type="password" required minlength="4"></label><label>새 비밀번호 확인<input id="pwNew2" type="password" required></label><button class="btn" type="submit">바꾸기</button></form>`;
+  if(AUTH.readonlyFolder){ B.innerHTML='<p class="note" style="margin:0">이 PC는 데이터 폴더를 <b>읽기 전용</b>으로 연결해서 보기만 할 수 있습니다. 수정하려면 폴더 쓰기 권한을 IT에 요청하세요.</p>'; return; }
+  if(!AUTH.required){
+    B.innerHTML=`<p class="note" style="margin:0">지금은 계정이 없어서 <b>누구나 수정</b>할 수 있습니다. 관리자 계정을 만들면 그때부터 <b>보기는 누구나</b>, <b>수정은 로그인한 사람만</b> 할 수 있습니다. 계정은 데이터 폴더의 데이터베이스에 저장되므로 같은 폴더를 쓰는 모든 PC에 똑같이 적용됩니다.</p>
+      <form id="setupF" class="ugrid"><label>관리자 아이디 (영문 · 숫자)<input id="suId" required pattern="[A-Za-z0-9_.\-]{2,40}"></label><label>이름 (기록에 남음)<input id="suName" required value="${esc(CFG.user||'')}"></label><label>비밀번호 (4자 이상)<input id="suPw" type="password" required minlength="4"></label><label>비밀번호 확인<input id="suPw2" type="password" required></label><button class="btn pri" type="submit">관리자 계정 만들기</button></form>`;
+    $('setupF').onsubmit=async e=>{ e.preventDefault(); if($('suPw').value!==$('suPw2').value){ toast('비밀번호 확인이 다릅니다'); return; }
+      try{ applyAuth(await api('POST','/api/auth/setup',{id:$('suId').value.trim(), name:$('suName').value.trim(), password:$('suPw').value})); lastTouch=Date.now(); toast('관리자 계정을 만들었습니다. 이제 수정은 로그인한 사람만 할 수 있습니다'); }catch(er){ toast(er.message); } };
+    return;
+  }
+  if(!AUTH.id){ B.innerHTML='<p class="note" style="margin:0">로그인하지 않아 <b>보기 전용</b>입니다. 수정하려면 로그인하세요. 계정은 관리자가 만들어 줍니다.</p><div><button class="btn pri" type="button" id="acLogin">로그인</button></div>'; $('acLogin').onclick=()=>loginDialog(''); return; }
+  let html='';
+  if(AUTH.role==='admin'){
+    let users=[]; try{ users=await api('GET','/api/users'); }catch(er){ toast(er.message); }
+    html+=`<div class="sec">사용자 목록</div><div class="tbl" style="border:0"><table class="utbl"><thead><tr><th>아이디</th><th>이름</th><th>권한</th><th>사용</th><th>최근 로그인</th><th>비밀번호 초기화</th><th></th></tr></thead><tbody>
+      ${users.map(u=>`<tr data-u="${esc(u.id)}"><td class="num">${esc(u.id)}</td><td><input data-k="name" value="${esc(u.name)}" style="width:110px"></td>
+        <td><select data-k="role"><option value="editor" ${u.role==='editor'?'selected':''}>편집</option><option value="admin" ${u.role==='admin'?'selected':''}>관리자</option></select></td>
+        <td class="c"><input type="checkbox" data-k="active" ${u.active?'checked':''}></td><td class="num note">${esc(u.lastLogin||'—')}</td>
+        <td><input data-k="password" type="password" placeholder="새 비밀번호" style="width:120px"></td><td><button class="btn sm" type="button" data-usave>저장</button></td></tr>`).join('')}</tbody></table></div>
+      <div class="sec">사용자 추가</div><form id="uaF" class="ugrid"><label>아이디 (영문 · 숫자)<input id="uaId" required pattern="[A-Za-z0-9_.\-]{2,40}"></label><label>이름<input id="uaName" required></label><label>비밀번호 (4자 이상)<input id="uaPw" type="password" required minlength="4"></label><label>권한<select id="uaRole"><option value="editor">편집 — 이슈 · 기록 수정</option><option value="admin">관리자 — 사용자 · 기준 정보도</option></select></label><button class="btn pri" type="submit">추가</button></form>
+      <div class="sec">자동 로그아웃</div><form id="toF" class="ugrid"><label>조작이 없으면 보기 전용으로 (분)<input id="toMin" type="number" min="5" max="480" value="${AUTH.timeoutMin||30}"></label><button class="btn" type="submit">저장</button></form>`;
+  }
+  B.innerHTML=html+pwForm+`<p class="note" style="margin:0">보기만 할 사람에게는 IT에 데이터 폴더를 <b>읽기 전용</b> 권한으로 요청하면 가장 확실합니다. 이 프로그램은 읽기 전용 폴더도 보기 전용으로 엽니다.</p>`;
+  if($('uaF')) $('uaF').onsubmit=async e=>{ e.preventDefault(); try{ await api('POST','/api/users',{create:true,id:$('uaId').value.trim(),name:$('uaName').value.trim(),password:$('uaPw').value,role:$('uaRole').value}); toast('사용자를 추가했습니다'); renderAuthCard(); }catch(er){ toast(er.message); } };
+  if($('toF')) $('toF').onsubmit=async e=>{ e.preventDefault(); try{ S=await api('PUT','/api/settings',{autoLogoutMin:+$('toMin').value}); await refreshAuth(); toast('자동 로그아웃 시간을 저장했습니다'); }catch(er){ toast(er.message); } };
+  B.querySelectorAll('[data-usave]').forEach(btn=>btn.onclick=async()=>{ const tr=btn.closest('tr'), v=k=>tr.querySelector(`[data-k="${k}"]`);
+    try{ await api('POST','/api/users',{id:tr.dataset.u,name:v('name').value.trim(),role:v('role').value,active:v('active').checked,password:v('password').value}); toast('저장했습니다'); await refreshAuth(); renderAuthCard(); }catch(er){ toast(er.message); } });
+  $('pwF').onsubmit=async e=>{ e.preventDefault(); if($('pwNew').value!==$('pwNew2').value){ toast('새 비밀번호 확인이 다릅니다'); return; }
+    try{ await api('POST','/api/auth/password',{old:$('pwOld').value,new:$('pwNew').value}); toast('비밀번호를 바꿨습니다'); $('pwF').reset(); }catch(er){ toast(er.message); } };
 }
 
 /* Exit Criteria: 발견일 기준 계획일 */
@@ -473,6 +564,7 @@ async function loadAll(){
   try{
     const a=await api('GET','/api/all');
     lop=a.issues; decs=a.decisions; prod=a.production||[]; S=a.settings; VER=a.version; CFG.dataDir=a.dataDir; USED=a.usedNos||[]; DBI=a.db||{};
+    if(a.auth) applyAuth(a.auth);
     if(DBI.migrated && !loaded) toast('이전 버전 데이터를 데이터베이스로 옮겼습니다: '+DBI.migrated.split(' ').slice(2).join(' '));
     loaded=true; setBadge(true); refresh();
   }catch(e){
@@ -493,7 +585,7 @@ setInterval(async()=>{
   if(document.hidden || !CFG.dataDir || !$('ovl').hidden && setupOpen) return;
   if(MODE==='m365' && Date.now()-lastPoll<20000) return;   // Microsoft 365: 20초마다 확인
   lastPoll=Date.now();
-  try{ const v=await api('GET','/api/version'); setBadge(true); if(v.version!==VER) await loadAll(); }
+  try{ const v=await api('GET','/api/version'); setBadge(true); if(v.auth) applyAuth(v.auth); if(v.version!==VER) await loadAll(); }
   catch(e){ setBadge(false); }
 }, 8000);
 
@@ -542,7 +634,7 @@ function renderLines(){
 }
 function emptyRow(cols){
   if(!loaded) return `<tr><td colspan="${cols}"><div class="blank">불러오는 중…</div></td></tr>`;
-  return `<tr><td colspan="${cols}"><div class="blank"><b style="color:var(--ink)">등록된 이슈가 없습니다</b><span>「+ 이슈 등록」으로 첫 이슈를 등록하세요. 사용법을 익히려면 예시 데이터를 불러와 둘러본 뒤 삭제할 수 있습니다.</span><button class="btn" data-seed>예시 데이터 불러오기</button></div></td></tr>`;
+  return `<tr><td colspan="${cols}"><div class="blank"><b style="color:var(--ink)">등록된 이슈가 없습니다</b><span>「+ 이슈 등록」으로 첫 이슈를 등록하세요. 사용법을 익히려면 예시 데이터를 불러와 둘러본 뒤 삭제할 수 있습니다.</span><button class="btn w" data-seed>예시 데이터 불러오기</button></div></td></tr>`;
 }
 function renderFocus(){
   if(!lop.length){ $('focus').innerHTML=emptyRow(8); return; }
@@ -688,6 +780,7 @@ function critCards(r, saved){
       <span class="ch"><span class="note">${nf?`첨부 ${nf}건`:'첨부 없음'}${d.checker?` · ${esc(d.checker)}`:''}</span><span class="go">${saved?'상세 입력 ›':'등록 후 입력'}</span></span></button>`; }).join('');
 }
 function openEditor(id){
+  if(!id && !AUTH.canEdit){ loginDialog('이슈를 등록하려면 로그인하세요'); return; }
   edId=id;
   const r=id?byId(id):{id:null,no:nextNo(TD),date:TD,model:'',part:'',partNo:'',line:S.lines[0]||'',issue:'',recur:'일시',dept:'품질',owner:'',crit:cr('RRRRRRRRR'),cd:{},action:'',fc:dAdd(14),ac:'',cc:''};
   if(!r) return;
@@ -723,15 +816,16 @@ function openEditor(id){
       <label>고객 완료일자<input id="e-cc" type="date" value="${esc(r.cc)}"></label>
     </div>
     <div class="toolbar">
-      <button class="btn pri" type="submit">${id?'저장':'등록'}</button>
+      <button class="btn pri w" type="submit">${id?'저장':'등록'}</button>
       <button class="btn" type="button" id="eCancel">닫기</button>
       <span class="sp"></span>
-      ${id?'<span id="delArea"><button class="btn del" type="button" id="eDel">삭제</button></span>':''}
+      ${id?'<span id="delArea" class="w"><button class="btn del" type="button" id="eDel">삭제</button></span>':''}
     </div>
   </form>
   ${id?'<div id="edLog" style="display:grid;gap:10px"></div>':''}`;
   ed.hidden=false; ed.scrollTop=0; markSel();
   if(id) renderLogPanel(r);
+  lockRO($('f'));
   $('eX').onclick=closeEditor;
   if(id){ if(pos>0) $('ePrev').onclick=()=>openEditor(order[pos-1]); if(pos>=0&&pos<order.length-1) $('eNext').onclick=()=>openEditor(order[pos+1]); }
   $('edCrit').onclick=e=>{ const c=e.target.closest('.ccard'); if(c && !c.disabled) openDetail(edId, c.dataset.k); };
@@ -780,7 +874,7 @@ async function sendFile(id, crit, file, logId){
 function renderLogPanel(r){
   lgPend=[]; lgAmend=null;
   $('edLog').innerHTML=`<div class="sec">조치 · 진행 기록 <span class="note" style="font-weight:400">— 실제로 한 일과 결과를 날짜별로 쌓아 두는 증빙 기록 · 상태 변경 · 등록 · 종결은 자동으로 함께 표시</span></div>
-    <div class="lgform" id="lgForm">
+    <div class="lgform w" id="lgForm">
       <div class="note" id="lgTitle"><b style="color:var(--ink)">✎ 실행 기록 남기기</b> — 실제로 한 일과 결과만 적습니다. 저장한 뒤에는 고치거나 지울 수 없고, 바로잡을 때는 정정 기록이 새로 남습니다.</div>
       <div class="row1">
         <label>실행일<input type="date" id="lgDate" value="${TD}"></label>
@@ -850,7 +944,7 @@ function renderLogList(r){
     return `<div class="it ${e.auto?'':'man'} ${old?'old':''}">
       <div class="h"><b>${esc(e.date)}</b>${e.auto?'<span class="chip none">자동</span>':`<span class="chip acc">${esc(e.kind||'기록')}</span>`}${e.method?`<span class="chip none">${esc(e.method)}</span>`:''}${e.amends!=null?'<span class="chip warn">정정</span>':''}${old?'<span class="chip none">정정됨</span>':''}
         ${e.party?`<span class="note">상대방 ${esc(e.party)}</span>`:''}<span class="note">· ${esc(e.by||'')} ${esc(String(e.at||'').slice(5,16))}</span>
-        ${!e.auto&&!old?`<button class="btn sm" type="button" data-amend="${esc(String(e.id))}" style="margin-left:auto">정정</button>`:''}</div>
+        ${!e.auto&&!old?`<button class="btn sm w" type="button" data-amend="${esc(String(e.id))}" style="margin-left:auto">정정</button>`:''}</div>
       <div class="c">${esc(e.content)}</div>${e.result?`<div class="r">${esc(e.result)}</div>`:''}
       ${(e.files||[]).length?`<div class="fl">${e.files.map((f,i)=>`<button class="btn sm" type="button" data-lgf="${esc(String(e.id))}:${i}">📎 ${esc(f.name)}</button>`).join('')}</div>`:''}</div>`; }).join('')
     || '<p class="note" style="margin:0">아직 기록이 없습니다. 위에서 실제로 한 일과 결과를 남기세요.</p>';
@@ -886,15 +980,16 @@ function openDetail(id,k){
     </div>
     <div style="display:grid;gap:8px"><div class="sec">첨부자료 <span class="note" style="font-weight:400">· PDF, 이미지(JPG·PNG 등), 엑셀(XLSX·XLS·CSV), 파워포인트(PPTX·PPT) · 파일당 50MB까지 ${MODE==='m365'?'OneDrive·SharePoint 폴더에':MODE==='browser'?'이 기기에':'데이터베이스에'} 원본 저장</span></div>
       <div class="files" id="dFiles"></div>
-      <div class="drop" id="dDrop"><span>${matchMedia('(hover:none) and (pointer:coarse)').matches?'「사진 찍기」로 바로 찍어 올리거나, 「파일 선택」으로 사진·PDF·엑셀을 고르세요.':'파일을 여기로 끌어놓거나 「파일 선택」을 누르세요. 화면 캡처는 Ctrl+V(맥은 ⌘V)로 바로 붙여넣을 수 있습니다.'}</span>
+      <div class="drop w" id="dDrop"><span>${matchMedia('(hover:none) and (pointer:coarse)').matches?'「사진 찍기」로 바로 찍어 올리거나, 「파일 선택」으로 사진·PDF·엑셀을 고르세요.':'파일을 여기로 끌어놓거나 「파일 선택」을 누르세요. 화면 캡처는 Ctrl+V(맥은 ⌘V)로 바로 붙여넣을 수 있습니다.'}</span>
         <span class="toolbar" style="justify-content:center"><label class="btn camera">사진 찍기<input id="dCam" type="file" accept="image/*" capture="environment" hidden></label><label class="btn">파일 선택<input id="dPick" type="file" multiple hidden accept=".pdf,.png,.jpg,.jpeg,.gif,.bmp,.webp,.heic,.xlsx,.xlsm,.xls,.csv,.pptx,.pptm,.ppt"></label></span></div></div>
-    <div class="toolbar"><button class="btn pri" id="dSave">저장</button><span id="dMsg" class="note"></span></div>`;
+    <div class="toolbar w"><button class="btn pri" id="dSave">저장</button><span id="dMsg" class="note"></span></div>`;
   $('ovl').hidden=false;
   $('dSt').onclick=e=>{ const b=e.target.closest('button[data-s]'); if(!b) return; dlg.state=b.dataset.s;
     [...$('dSt').children].forEach(x=>x.setAttribute('aria-pressed', x.dataset.s===dlg.state));
     if(dlg.state==='G'){ if(!$('d-done').value) $('d-done').value=TD; if(!$('d-checker').value.trim()) $('d-checker').value=CFG.user||''; } };
   $('dClose').onclick=tryCloseDetail;
   $('dSave').onclick=saveDetail;
+  lockRO($('dlg')); if(!AUTH.canEdit) $('dSt').querySelectorAll('button').forEach(b=>b.disabled=true);
   $('dPick').onchange=e=>{ uploadAll([...e.target.files]); e.target.value=''; };
   $('dCam').onchange=e=>{ const f=e.target.files[0]; e.target.value=''; if(!f) return;
     const t=new Date(), nm=`현장사진_${TD.replace(/-/g,'')}_${pad(t.getHours())}${pad(t.getMinutes())}${pad(t.getSeconds())}`;
@@ -925,7 +1020,7 @@ function renderDetailFiles(){
   $('dFiles').innerHTML=files.map((f,i)=>`<div class="fi">
       <button class="th ${f.kind}" data-open="${i}" aria-label="${esc(f.name)} 열기">${f.kind==='img'?(WEB?`<img data-att="${esc(f.id)}" alt="">`:`<img src="${attUrl(f.id)}" alt="" loading="lazy">`):esc((f.ext||'').toUpperCase()||'FILE')}</button>
       <div class="nm"><b title="${esc(f.name)}">${esc(f.name)}</b><span class="note num">${fsize(f.size)} · ${md(f.at)}${f.by?` · ${esc(f.by)}`:''}</span></div>
-      <div class="ac" data-i="${i}"><button class="btn sm" data-open="${i}">열기</button><button class="btn sm" data-saveas="${i}">저장</button><button class="btn sm del" data-rm="${i}">삭제</button></div></div>`).join('')
+      <div class="ac" data-i="${i}"><button class="btn sm" data-open="${i}">열기</button><button class="btn sm" data-saveas="${i}">저장</button><button class="btn sm del w" data-rm="${i}">삭제</button></div></div>`).join('')
     || '<span class="note">아직 첨부된 자료가 없습니다.</span>';
   if(WEB) $('dFiles').querySelectorAll('img[data-att]').forEach(async img=>{ try{ img.src=await STORE_API.attUrl(img.dataset.att); }catch(e){} });
 }
@@ -1128,6 +1223,10 @@ function renderSettings(){
   $('sQuitArea').innerHTML=CFG.window?'':'<button class="btn" id="sQuit" type="button">프로그램 종료</button>';
   if($('sQuit')) $('sQuit').onclick=async()=>{ try{ await api('POST','/api/quit'); }catch(e){} document.body.innerHTML='<p style="padding:40px;font-size:16px">프로그램을 종료했습니다. 이 브라우저 탭을 닫아도 됩니다.</p>'; };
   $('sInfo').innerHTML=`버전 ${esc(CFG.version||'')} · 사용자 ${esc(CFG.user||'')} · ${CFG.window?'프로그램 창':'브라우저'} 모드`;
+  $('sBackup').classList.add('w');
+  const adm=AUTH.isAdmin; $('setForm').querySelectorAll('input,textarea,button').forEach(e=>e.disabled=!adm);
+  $('setNote').textContent=adm?'이미 등록된 이슈의 발견장소·순번은 바뀌지 않습니다. 새로 등록하는 이슈부터 적용됩니다.':'기준 정보는 관리자만 바꿀 수 있습니다.';
+  renderAuthCard();
 }
 $('setForm').onsubmit=async e=>{
   e.preventDefault();
