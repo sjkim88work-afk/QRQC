@@ -232,7 +232,14 @@
         const latest = await readJson(cur);
         obj = typeof body === 'function' ? body(latest) : deepMerge(latest, body);
         m.eTag = cur.eTag;
-      } else obj = clone(body);
+      } else {
+        obj = clone(body);
+        if (col === 'issues' && m) {   // 이슈 전체 저장이어도 조치 · 진행 기록은 항상 최신 내용을 유지 (적립식)
+          const cur = await g('GET', `${base()}/${m.itemId}?$select=id,eTag,@microsoft.graph.downloadUrl`);
+          obj.log = (await readJson(cur)).log || [];
+          m.eTag = cur.eTag;
+        }
+      }
       delete obj.id;
       if (col === 'issues') await checkNo(id, obj.no);
       stamp(obj, !m);
@@ -275,7 +282,24 @@
   }
 
   /* ---------------- 첨부 */
-  async function upload(issueId, crit, file) {
+  // 조치 · 진행 기록 (적립식: 추가만, 고칠 때는 정정 기록을 새로)
+  async function addLog(issueId, b) {
+    const content = String(b.content || '').trim();
+    if (!content) throw err(400, '실행 내용을 입력하세요');
+    const e = { id: 'L' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), date: String(b.date || nowStr()).slice(0, 10),
+      kind: String(b.kind || '').slice(0, 40), party: String(b.party || '').slice(0, 120), method: String(b.method || '').slice(0, 40),
+      content: content.slice(0, 4000), result: String(b.result || '').trim().slice(0, 4000), auto: !!b.auto, amends: b.amends || null,
+      by: me.name, at: nowStr(), files: [] };
+    const issue = await saveDoc('issues', issueId, cur => {
+      cur.log = cur.log || [];
+      if (e.amends && !cur.log.some(x => x.id === e.amends)) throw err(404, '정정할 기록을 찾을 수 없습니다');
+      cur.log.push(e);
+      return cur;
+    }, 'patch');
+    return { entry: e, issue };
+  }
+  async function upload(issueId, crit, file, logId) {
+    if (crit === 'log' && !logId) throw err(400, '잘못된 기록 번호입니다');
     const name = safeName(file.name), ext = (name.split('.').pop() || '').toLowerCase();
     if (!ALLOWED[ext]) throw err(415, 'PDF, 이미지(JPG·PNG·HEIC 등), 엑셀(XLSX·XLS·CSV), 파워포인트(PPTX·PPT) 파일만 첨부할 수 있습니다');
     if (file.size > MAX_ATTACH) throw err(413, '파일당 50MB까지 첨부할 수 있습니다');
@@ -294,6 +318,12 @@
     }
     const f = { id: it.id, name: it.name, ext, kind: ALLOWED[ext], size: it.size || file.size, at: nowStr().slice(0, 10), by: me.name, webUrl: it.webUrl || '' };
     const issue = await saveDoc('issues', issueId, cur => {
+      if (crit === 'log') {
+        const e = (cur.log || []).find(x => x.id === logId);
+        if (!e) throw err(404, '기록을 찾을 수 없습니다');
+        e.files = (e.files || []).concat([f]);
+        return cur;
+      }
       cur.cd = cur.cd || {}; cur.cd[crit] = cur.cd[crit] || {};
       cur.cd[crit].files = (cur.cd[crit].files || []).concat([f]);
       return cur;
@@ -328,7 +358,10 @@
 
   /* ---------------- 화면의 /api/... 요청을 Graph 로 */
   function findAttachment(lop, attId) {
-    for (const r of lop) for (const k in (r.cd || {})) for (const f of (r.cd[k].files || [])) if (f.id === attId) return { issue: r, crit: k, file: f };
+    for (const r of lop) {
+      for (const k in (r.cd || {})) for (const f of (r.cd[k].files || [])) if (f.id === attId) return { issue: r, crit: k, file: f };
+      for (const e of (r.log || [])) for (const f of (e.files || [])) if (f.id === attId) return { issue: r, crit: 'log', file: f };
+    }
     return null;
   }
   async function api(method, url, body) {
@@ -344,6 +377,8 @@
     }
     if (p === 'version' && method === 'GET') return { version: await version() };
     if (p === 'settings' && method === 'PUT') return saveSettings(body || {});
+    const lg = p.match(/^issues\/([A-Za-z0-9_.\-]{1,80})\/log$/);
+    if (lg && method === 'POST') return addLog(lg[1], body || {});
     const m = p.match(/^(issues|decisions)\/([A-Za-z0-9_.\-]{1,80})$/);
     if (m) {
       const [, col, id] = m;
@@ -354,6 +389,7 @@
     if (p === 'attach/delete') {
       const hit = findAttachment(window.QRQC_ISSUES ? window.QRQC_ISSUES() : [], body.att);
       if (!hit) throw err(404, '첨부를 찾을 수 없습니다');
+      if (hit.crit === 'log') throw err(403, '조치 · 진행 기록의 증빙은 지울 수 없습니다');
       return { issue: await removeAttachment(body.att, hit.issue.id, hit.crit) };
     }
     if (p === 'open') {
