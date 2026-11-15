@@ -11,4 +11,4 @@ window.QRQC_CONFIG = {
   clientId: '',
   tenantId: 'consumers',
 };
-window.QRQC_VERSION = '1.6.0';
+window.QRQC_VERSION = '1.7.0';
