@@ -131,8 +131,9 @@ td.act{min-width:240px;max-width:320px;font-size:12.5px;white-space:pre-line}
 td.c{text-align:center;white-space:nowrap}
 .ex{font:600 10px var(--f-ui);color:var(--warn);background:var(--warn-bg);border-radius:3px;padding:0 4px;margin-left:4px}
 .editor{background:var(--panel);border:1px solid var(--accent);border-radius:6px;padding:14px;display:grid;gap:12px}
-/* 이슈 상세는 오른쪽 패널: 추적표가 그대로 보여서 스크롤 없이 다른 이슈를 바로 고를 수 있음 */
-.editor.drawer{position:fixed;top:0;right:0;bottom:0;width:min(860px,54%);overflow:auto;z-index:25;border-radius:0;border:0;border-left:3px solid var(--accent);box-shadow:-14px 0 34px rgba(10,20,40,.18);align-content:start;padding-top:0}
+/* 이슈 상세는 팝업 창: 추적표 위에 열리고 페이지가 스크롤되지 않음 · 이전 · 다음으로 다른 이슈로 바로 이동 */
+.edscrim{position:fixed;inset:0;background:var(--scrim);z-index:24}
+.editor.modal{position:fixed;top:3%;bottom:3%;left:0;right:0;margin:0 auto;width:min(1180px,94%);overflow:auto;z-index:25;border:0;border-radius:8px;box-shadow:0 24px 60px rgba(10,20,40,.35);align-content:start;padding-top:0}
 .edtop{position:sticky;top:0;z-index:3;background:var(--panel);display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:10px 0 8px;border-bottom:1px solid var(--line)}
 .edtop b{font-size:15px}
 tbody tr.row.sel td{background:var(--soft)} tbody tr.row.sel td.stk1{box-shadow:inset 4px 0 0 var(--accent)}
@@ -168,7 +169,7 @@ tbody tr.row.sel td{background:var(--soft)} tbody tr.row.sel td.stk1{box-shadow:
   #printArea table{width:100%;border-collapse:collapse} #printArea th,#printArea td{border:1px solid #999;padding:4px 6px;vertical-align:top;text-align:left;background:#fff;font-size:11px}
   #printArea th{background:#eee}
 }
-@media (max-width:760px){ .editor.drawer{width:100%;border-left:0;padding:calc(env(safe-area-inset-top,0px)) 12px calc(20px + env(safe-area-inset-bottom,0px))} }
+@media (max-width:760px){ .editor.modal{top:0;bottom:0;width:100%;border-radius:0;padding:calc(env(safe-area-inset-top,0px)) 12px calc(20px + env(safe-area-inset-bottom,0px))} }
 @media (max-width:760px){ .lgform .row1,.lgform .row2{grid-template-columns:1fr 1fr} .lgform .row1 label:nth-child(3),.lgform .row2 label{grid-column:1/-1} }
 .crit-edit{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:8px}
 .ccard{font:inherit;text-align:left;color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:8px 10px;display:grid;gap:3px;cursor:pointer;align-content:start}
@@ -333,7 +334,8 @@ body.meet td.act.open .clamp{display:block;cursor:zoom-out}
       <button class="btn" id="bExport">엑셀로 내보내기</button>
       <button class="btn pri" id="bAdd">+ 이슈 등록</button>
     </div>
-    <div id="editor" class="editor drawer" hidden role="dialog" aria-label="이슈 상세"></div>
+    <div id="edScrim" class="edscrim" hidden></div>
+    <div id="editor" class="editor modal" hidden role="dialog" aria-modal="true" aria-label="이슈 상세"></div>
     <div class="cards" id="lopCards"></div>
     <div class="tbl" id="tblWrap"><table id="frt">
       <thead id="frtHead"></thead>
@@ -672,8 +674,11 @@ $('bExDel').onclick=async()=>{
 let edId=null;
 // 지금 화면(필터 · 정렬)에 보이는 순서 — 상세 패널의 이전 · 다음
 const issueOrder=()=>[...document.querySelectorAll(matchMedia('(max-width:760px)').matches?'#lopCards .icard[data-id]':'#frtBody tr.row[data-id]')].map(x=>x.dataset.id);
-function markSel(){ document.querySelectorAll('#frtBody tr.row,#lopCards .icard').forEach(x=>x.classList.toggle('sel', !!edId && x.dataset.id===edId && !$('editor').hidden)); }
+function markSel(){
+  const open=!$('editor').hidden; $('edScrim').hidden=!open; document.documentElement.style.overflow=open?'hidden':'';
+  document.querySelectorAll('#frtBody tr.row,#lopCards .icard').forEach(x=>x.classList.toggle('sel', !!edId && x.dataset.id===edId && open)); }
 function closeEditor(){ $('editor').hidden=true; edId=null; markSel(); }
+$('edScrim').onclick=closeEditor;
 function critCards(r, saved){
   return CRIT.map(c=>{ const s=cState(r,c), d=cdOf(r,c.k), nf=(d.files||[]).length, first=(d.note||'').split('\n')[0];
     return `<button type="button" class="ccard" data-k="${c.k}" ${saved?'':'disabled'}>
@@ -1011,6 +1016,7 @@ let rz; window.addEventListener('resize',()=>{ clearTimeout(rz); rz=setTimeout((
 
 function show(v){
   const V={dash:['vDash','tDash'],lop:['vLop','tLop'],set:['vSet','tSet']};
+  if(v!=='lop' && !$('editor').hidden) closeEditor();
   for(const k in V){ $(V[k][0]).hidden=k!==v; $(V[k][1]).setAttribute('aria-selected',k===v); }
   document.body.classList.toggle('wide', v==='lop');
   if(v==='lop') applyView();
@@ -1037,7 +1043,7 @@ const STEPS={
   6:()=>{ show('dash'); setQF(null); copyMinutes(); },
 };
 function goStep(n){
-  if(n!==2 && !$('editor').hidden && !edId) $('editor').hidden=true;
+  if(n!==2 && !$('editor').hidden && !edId) closeEditor();
   meet.cur=n; if(!meet.seen.includes(n)) meet.seen.push(n); if(!meet.start) meet.start=Date.now(); saveMeet();
   STEPS[n](); renderAgenda();
 }

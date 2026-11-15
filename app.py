@@ -33,7 +33,7 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlparse
 
-VERSION = '1.7.0'
+VERSION = '1.8.0'
 APP_TITLE = '공정품질 신속대응회의'
 IS_WIN = os.name == 'nt'
 DB_NAME = 'qrqc.db'
