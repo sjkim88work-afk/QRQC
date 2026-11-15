@@ -131,9 +131,45 @@ td.act{min-width:240px;max-width:320px;font-size:12.5px;white-space:pre-line}
 td.c{text-align:center;white-space:nowrap}
 .ex{font:600 10px var(--f-ui);color:var(--warn);background:var(--warn-bg);border-radius:3px;padding:0 4px;margin-left:4px}
 .editor{background:var(--panel);border:1px solid var(--accent);border-radius:6px;padding:14px;display:grid;gap:12px}
+/* 이슈 상세는 오른쪽 패널: 추적표가 그대로 보여서 스크롤 없이 다른 이슈를 바로 고를 수 있음 */
+.editor.drawer{position:fixed;top:0;right:0;bottom:0;width:min(860px,54%);overflow:auto;z-index:25;border-radius:0;border:0;border-left:3px solid var(--accent);box-shadow:-14px 0 34px rgba(10,20,40,.18);align-content:start;padding-top:0}
+.edtop{position:sticky;top:0;z-index:3;background:var(--panel);display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:10px 0 8px;border-bottom:1px solid var(--line)}
+.edtop b{font-size:15px}
+tbody tr.row.sel td{background:var(--soft)} tbody tr.row.sel td.stk1{box-shadow:inset 4px 0 0 var(--accent)}
+.icard.sel{outline:2px solid var(--accent)}
 .form{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}
 .form label{display:grid;gap:3px;font-size:12px;color:var(--muted)}
 .form .wide{grid-column:1/-1}
+/* 조치 · 진행 기록 (적립식) */
+.lgform{background:var(--soft);border:1px solid var(--line);border-radius:6px;padding:12px;display:grid;gap:10px}
+.lgform .row1{display:grid;grid-template-columns:150px 170px minmax(0,1fr) 130px;gap:8px}
+.lgform .row2{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:8px}
+.lgform label{display:grid;gap:3px;font-size:12px;color:var(--muted)}
+.lgform textarea{min-height:70px}
+.lgform .pend{display:flex;flex-wrap:wrap;gap:6px}
+.lgform .pend span{font-size:12px;background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:1px 8px}
+.lghead{display:flex;align-items:center;gap:10px;flex-wrap:wrap;border-bottom:1px solid var(--line);padding-bottom:6px}
+.tl{border-left:2px solid var(--line);margin-left:7px;padding-left:18px;display:grid}
+.tl .it{position:relative;padding:8px 0;display:grid;gap:3px}
+.tl .it::before{content:"";position:absolute;left:-26px;top:13px;width:10px;height:10px;border-radius:50%;border:2px solid var(--muted);background:var(--panel)}
+.tl .it.man::before{border-color:var(--accent);background:var(--accent)}
+.tl .it .h{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.tl .it .h b{font-family:var(--f-num)}
+.tl .it .c{white-space:pre-line}
+.tl .it .r{white-space:pre-line;color:var(--ink);border-left:3px solid var(--ok);padding-left:8px}
+.tl .it.old .c,.tl .it.old .r{text-decoration:line-through;color:var(--muted)}
+.tl .it .fl{display:flex;flex-wrap:wrap;gap:6px}
+.chip.acc{background:var(--soft);color:var(--accent)}
+.act .lgc{display:block;font-size:11px;color:var(--accent);margin-top:2px}
+#printArea{display:none}
+@media print{
+  body{background:#fff;padding:0;zoom:1!important} body > *:not(#printArea){display:none!important}
+  #printArea{display:block;color:#000;font:12px/1.5 var(--f-ui)} #printArea h1{font-size:16px;margin:0 0 4px}
+  #printArea table{width:100%;border-collapse:collapse} #printArea th,#printArea td{border:1px solid #999;padding:4px 6px;vertical-align:top;text-align:left;background:#fff;font-size:11px}
+  #printArea th{background:#eee}
+}
+@media (max-width:760px){ .editor.drawer{width:100%;border-left:0;padding:calc(env(safe-area-inset-top,0px)) 12px calc(20px + env(safe-area-inset-bottom,0px))} }
+@media (max-width:760px){ .lgform .row1,.lgform .row2{grid-template-columns:1fr 1fr} .lgform .row1 label:nth-child(3),.lgform .row2 label{grid-column:1/-1} }
 .crit-edit{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:8px}
 .ccard{font:inherit;text-align:left;color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:8px 10px;display:grid;gap:3px;cursor:pointer;align-content:start}
 .ccard:hover:not(:disabled){border-color:var(--accent);background:var(--soft)}
@@ -297,7 +333,7 @@ body.meet td.act.open .clamp{display:block;cursor:zoom-out}
       <button class="btn" id="bExport">엑셀로 내보내기</button>
       <button class="btn pri" id="bAdd">+ 이슈 등록</button>
     </div>
-    <div id="editor" class="editor" hidden></div>
+    <div id="editor" class="editor drawer" hidden role="dialog" aria-label="이슈 상세"></div>
     <div class="cards" id="lopCards"></div>
     <div class="tbl" id="tblWrap"><table id="frt">
       <thead id="frtHead"></thead>
@@ -340,6 +376,7 @@ body.meet td.act.open .clamp{display:block;cursor:zoom-out}
   <div class="pb" id="pvBody"></div>
 </div>
 <div class="toast" id="toast" hidden></div>
+<div id="printArea"></div>
 
 <script src="config.js"></script>
 <script src="lib/msal-browser.min.js"></script>
@@ -570,7 +607,7 @@ function renderLop(){
       <td class="c num" style="${!done&&nd<TD?'color:var(--bad);font-weight:600':''}">${done?'—':md(nd)}</td>
       ${CRIT.map(c=>{ const s=cState(r,c), d=cdOf(r,c.k), nf=(d.files||[]).length;
         return `<td class="cr" data-k="${c.k}" title="${c.ko} 상세 열기"><span class="pd ${isOver(r,c)?'over':''}">${md(plan(r,c))}</span><button class="st ${s}" data-c="${c.k}" aria-label="${c.ko} ${s}, 눌러서 상세 입력" title="${c.ko}${isOver(r,c)?' · 계획일 초과':''} — 눌러서 상세 입력">${s==='NA'?'N/A':s}</button><span class="att">${nf?CLIP+nf:''}${d.note&&!nf?'메모':''}</span></td>`; }).join('')}
-      <td class="act"><div class="clamp">${esc(r.action)}</div></td><td class="c num">${md(r.fc)}</td><td class="c num mx">${md(r.ac)}</td><td class="c num mx">${md(r.cc)}</td></tr>`;
+      <td class="act"><div class="clamp">${esc(r.action)}</div>${logCnt(r)?`<span class="lgc">기록 ${logCnt(r)}건 · 최근 ${md(lastLog(r).date)}</span>`:''}</td><td class="c num">${md(r.fc)}</td><td class="c num mx">${md(r.ac)}</td><td class="c num mx">${md(r.cc)}</td></tr>`;
   }).join('') || `<tr><td colspan="${16+CRIT.length}" class="note">조건에 맞는 항목이 없습니다.</td></tr>`;
 }
 $('frtBody').onclick=e=>{
@@ -633,6 +670,10 @@ $('bExDel').onclick=async()=>{
 
 /* ================= 이슈 편집 ================= */
 let edId=null;
+// 지금 화면(필터 · 정렬)에 보이는 순서 — 상세 패널의 이전 · 다음
+const issueOrder=()=>[...document.querySelectorAll(matchMedia('(max-width:760px)').matches?'#lopCards .icard[data-id]':'#frtBody tr.row[data-id]')].map(x=>x.dataset.id);
+function markSel(){ document.querySelectorAll('#frtBody tr.row,#lopCards .icard').forEach(x=>x.classList.toggle('sel', !!edId && x.dataset.id===edId && !$('editor').hidden)); }
+function closeEditor(){ $('editor').hidden=true; edId=null; markSel(); }
 function critCards(r, saved){
   return CRIT.map(c=>{ const s=cState(r,c), d=cdOf(r,c.k), nf=(d.files||[]).length, first=(d.note||'').split('\n')[0];
     return `<button type="button" class="ccard" data-k="${c.k}" ${saved?'':'disabled'}>
@@ -648,7 +689,11 @@ function openEditor(id){
   const lines=S.lines.includes(r.line)||!r.line?S.lines:[...S.lines, r.line];
   const opt=(arr,v)=>arr.map(a=>`<option ${a===v?'selected':''}>${esc(a)}</option>`).join('');
   const ed=$('editor');
-  ed.innerHTML=`<div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><b>${id?`${esc(r.no)} 수정`:'신규 이슈 등록'}</b><span class="note">${id&&r.updatedBy?`마지막 수정 ${esc(r.updatedBy)} · ${esc(r.updatedAt)}`:'Exit Criteria 계획일은 발견일 기준으로 자동 계산됩니다'}</span></div>
+  const order=issueOrder(), pos=id?order.indexOf(id):-1;
+  ed.innerHTML=`<div class="edtop"><b>${id?`${esc(r.no)} · ${esc(r.part)}`:'신규 이슈 등록'}</b>
+      ${id?`<span class="note">${pos>=0?`${pos+1} / ${order.length}`:''}</span><button class="btn sm" type="button" id="ePrev" ${pos>0?'':'disabled'} title="이전 이슈 (Alt+↑)">▲ 이전</button><button class="btn sm" type="button" id="eNext" ${pos>=0&&pos<order.length-1?'':'disabled'} title="다음 이슈 (Alt+↓)">▼ 다음</button>`:''}
+      <span class="sp" style="flex:1"></span><button class="btn sm" type="button" id="eX" title="닫기 (Esc)">✕ 닫기</button></div>
+    <span class="note">${id&&r.updatedBy?`마지막 수정 ${esc(r.updatedBy)} · ${esc(r.updatedAt)}`:'Exit Criteria 계획일은 발견일 기준으로 자동 계산됩니다'}</span>
   <form id="f" style="display:grid;gap:12px">
     <div class="sec">기본 정보</div>
     <div class="form">
@@ -678,15 +723,19 @@ function openEditor(id){
       <span class="sp"></span>
       ${id?'<span id="delArea"><button class="btn del" type="button" id="eDel">삭제</button></span>':''}
     </div>
-  </form>`;
-  ed.hidden=false; ed.scrollIntoView({block:'nearest',behavior:'smooth'});
+  </form>
+  ${id?'<div id="edLog" style="display:grid;gap:10px"></div>':''}`;
+  ed.hidden=false; ed.scrollTop=0; markSel();
+  if(id) renderLogPanel(r);
+  $('eX').onclick=closeEditor;
+  if(id){ if(pos>0) $('ePrev').onclick=()=>openEditor(order[pos-1]); if(pos>=0&&pos<order.length-1) $('eNext').onclick=()=>openEditor(order[pos+1]); }
   $('edCrit').onclick=e=>{ const c=e.target.closest('.ccard'); if(c && !c.disabled) openDetail(edId, c.dataset.k); };
-  $('eCancel').onclick=()=>{ ed.hidden=true; edId=null; };
+  $('eCancel').onclick=closeEditor;
   if(id){
     $('eDel').onclick=()=>{
       const nf=nFiles(r);
       $('delArea').innerHTML=`<span class="confirm">${esc(r.no)}${nf?`와 첨부 ${nf}건`:''}을 삭제할까요? (데이터베이스에는 삭제 표시만 남겨 복구할 수 있습니다) <button class="btn del" type="button" id="yDel">삭제</button><button class="btn" type="button" id="nDel">취소</button></span>`;
-      $('yDel').onclick=async()=>{ await delIssue(id); ed.hidden=true; edId=null; toast(`${r.no} 삭제됨`); };
+      $('yDel').onclick=async()=>{ await delIssue(id); closeEditor(); toast(`${r.no} 삭제됨`); };
       $('nDel').onclick=()=>openEditor(id);
     };
   }
@@ -695,9 +744,121 @@ function openEditor(id){
     const v=k=>$('e-'+k).value.trim();
     const base={no:v('no'),date:v('date'),model:v('model'),part:v('part'),partNo:v('partNo'),line:v('line'),recur:v('recur'),dept:v('dept'),owner:v('owner'),issue:v('issue'),action:v('action'),fc:v('fc'),ac:v('ac'),cc:v('cc')};
     if(lop.some(x=>x.no===base.no && x.id!==id)){ toast(`순번 ${base.no}은 이미 있습니다`); return; }
-    if(id){ await patchIssue(id, base); toast(`${base.no} 저장됨`); ed.hidden=true; edId=null; }
-    else { const nid=newId(); await putIssue({id:nid,...base,crit:cr('RRRRRRRRR'),cd:{}}); toast(`${base.no} 등록됨 — 이제 Exit Criteria 상세를 입력할 수 있습니다`); openEditor(nid); }
+    if(id){ const wasOpen=!r.ac; await patchIssue(id, base); toast(`${base.no} 저장됨`);
+      if(wasOpen && base.ac) autoLog(id, `종결 — 실제 완료일자 ${base.ac}`); }
+    else { const nid=newId(); await putIssue({id:nid,...base,crit:cr('RRRRRRRRR'),cd:{}});
+      await autoLog(nid, `이슈 등록 — 발견 ${base.date} · ${base.line} · ${oneLine(base.issue)}`);
+      toast(`${base.no} 등록됨 — 이제 Exit Criteria 상세와 조치 · 진행 기록을 남길 수 있습니다`); openEditor(nid); }
   };
+}
+
+/* ================= 조치 · 진행 기록 (적립식) ================= */
+// 실제로 한 일과 결과를 날짜별로 쌓아 두는 증빙 기록. 저장한 뒤에는 고치거나 지울 수 없고, 바로잡을 때는 '정정' 기록을 새로 남깁니다.
+// 상태 변경 · 이슈 등록 · 종결은 프로그램이 '자동' 기록으로 함께 남깁니다.
+const LOG_KINDS=['현장 조치','선별 · 격리','원인 조사','협력사 연락','고객 연락','사내 협의 · 회의','검사 · 측정','시험 · 분석','표준 · 문서 개정','교육','기타'];
+const LOG_METHODS=['','대면','전화','메일','메신저','방문','공문','회의'];
+const SN=s=>s==='NA'?'N/A':s;
+const oneLine=t=>String(t||'').split('\n').map(x=>x.trim()).filter(Boolean).join(' / ');
+const logsOf=r=>(r&&r.log)||[];
+const liveLogs=r=>{ const a=logsOf(r), old=new Set(a.filter(e=>e.amends!=null).map(e=>String(e.amends))); return a.filter(e=>!e.auto && !old.has(String(e.id))); };
+const logCnt=r=>liveLogs(r).length;
+const lastLog=r=>liveLogs(r).slice().sort((a,b)=>(a.date+a.at).localeCompare(b.date+b.at)).pop()||{};
+let lgPend=[], lgAmend=null, lgHideAuto=false;
+try{ lgHideAuto=localStorage.getItem('qrqc-log-hide-auto')==='1'; }catch(e){}
+async function postLog(id, body){ const d=await api('POST',`/api/issues/${enc(id)}/log`, body); upsertLocal('issues', d.issue); refresh(); return d; }
+async function autoLog(id, content){ try{ await postLog(id,{date:TD, kind:'자동', content, auto:true}); }catch(e){} }
+async function sendFile(id, crit, file, logId){
+  if(WEB) return STORE_API.upload(id, crit, file, logId);
+  const r=await fetch('/api/upload?'+new URLSearchParams({issue:id,crit,name:file.name,...(logId!=null?{log:logId}:{})}),{method:'POST',body:file});
+  const d=await r.json().catch(()=>({})); if(!r.ok) throw new Error(d.error||'첨부하지 못했습니다'); return d;
+}
+function renderLogPanel(r){
+  lgPend=[]; lgAmend=null;
+  $('edLog').innerHTML=`<div class="sec">조치 · 진행 기록 <span class="note" style="font-weight:400">— 실제로 한 일과 결과를 날짜별로 쌓아 두는 증빙 기록 · 상태 변경 · 등록 · 종결은 자동으로 함께 표시</span></div>
+    <div class="lgform" id="lgForm">
+      <div class="note" id="lgTitle"><b style="color:var(--ink)">✎ 실행 기록 남기기</b> — 실제로 한 일과 결과만 적습니다. 저장한 뒤에는 고치거나 지울 수 없고, 바로잡을 때는 정정 기록이 새로 남습니다.</div>
+      <div class="row1">
+        <label>실행일<input type="date" id="lgDate" value="${TD}"></label>
+        <label>구분<select id="lgKind">${LOG_KINDS.map(k=>`<option>${k}</option>`).join('')}</select></label>
+        <label>상대방<input id="lgParty" placeholder="예: 대성정밀 박OO 과장 / 생산 2라인 반장"></label>
+        <label>방법<select id="lgMethod">${LOG_METHODS.map(k=>`<option value="${k}">${k||'—'}</option>`).join('')}</select></label>
+      </div>
+      <div class="row2">
+        <label>실행 내용 *<textarea id="lgContent" placeholder="무엇을 했는가 — 예: 출하 대기 재고 300개 전수 선별, 협력사에 불량 시료 5개 전달"></textarea></label>
+        <label>결과 · 합의 사항<textarea id="lgResult" placeholder="예: 불량 4개 추가 검출 / 협력사 귀책 인정, 선별비 부담 합의"></textarea></label>
+      </div>
+      <div class="toolbar">
+        <label class="btn">📎 증빙 첨부<input type="file" id="lgFile" multiple hidden accept=".pdf,.png,.jpg,.jpeg,.gif,.bmp,.webp,.heic,.xlsx,.xlsm,.xls,.csv,.pptx,.pptm,.ppt"></label>
+        <span class="note">메일 캡처 · 성적서 · 현장 사진 · 보고서 (캡처 후 Ctrl+V 가능)</span><span class="pend" id="lgPend"></span>
+        <span class="sp"></span><button class="btn" type="button" id="lgCancel" hidden>정정 취소</button><button class="btn pri" type="button" id="lgAdd">+ 기록 추가</button>
+      </div>
+      <span class="note" id="lgMsg"></span>
+    </div>
+    <div class="lghead"><b>실행 기록</b><span class="chip none" id="lgCount"></span><span class="sp" style="flex:1"></span>
+      <label class="note" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="lgHide" ${lgHideAuto?'checked':''}>자동 기록 숨기기</label>
+      <button class="btn sm" type="button" id="lgPrint">기록 출력</button></div>
+    <div class="tl" id="lgList"></div>`;
+  const pend=()=>{ $('lgPend').innerHTML=lgPend.map((f,i)=>`<span>${esc(f.name)} <a href="#" data-unp="${i}" aria-label="빼기">×</a></span>`).join(''); };
+  const addFiles=list=>{ for(const f of list){ const ext=(f.name.split('.').pop()||'').toLowerCase();
+      if(!ALLOWED_EXT.includes(ext)){ toast(`${f.name}: PDF, 이미지, 엑셀, 파워포인트 파일만 첨부할 수 있습니다`); continue; }
+      if(f.size>50*1048576){ toast(`${f.name}: 파일당 50MB까지 첨부할 수 있습니다`); continue; } lgPend.push(f); } pend(); };
+  $('lgFile').onchange=e=>{ addFiles([...e.target.files]); e.target.value=''; };
+  $('lgPend').onclick=e=>{ const a=e.target.closest('[data-unp]'); if(a){ e.preventDefault(); lgPend.splice(+a.dataset.unp,1); pend(); } };
+  $('lgForm').addEventListener('paste',e=>{ const fs=[...(e.clipboardData?.files||[])]; if(!fs.length) return; e.preventDefault();
+    const t=new Date(), nm=`증빙_${TD.replace(/-/g,'')}_${pad(t.getHours())}${pad(t.getMinutes())}${pad(t.getSeconds())}`;
+    addFiles(fs.map((f,i)=>new File([f], f.name && f.name!=='image.png' ? f.name : `${nm}${fs.length>1?'_'+(i+1):''}.png`, {type:f.type}))); });
+  $('lgHide').onchange=e=>{ lgHideAuto=e.target.checked; try{ localStorage.setItem('qrqc-log-hide-auto', lgHideAuto?'1':'0'); }catch(_){} renderLogList(byId(edId)); };
+  $('lgPrint').onclick=()=>printLog(byId(edId));
+  $('lgCancel').onclick=()=>setAmend(null);
+  $('lgAdd').onclick=async()=>{
+    const content=$('lgContent').value.trim(); if(!content){ toast('실행 내용을 입력하세요'); $('lgContent').focus(); return; }
+    const body={date:$('lgDate').value||TD, kind:$('lgKind').value, party:$('lgParty').value.trim(), method:$('lgMethod').value, content, result:$('lgResult').value.trim(), amends:lgAmend};
+    const id=edId; $('lgAdd').disabled=true; $('lgMsg').textContent='저장 중…';
+    try{
+      const d=await postLog(id, body);
+      for(const f of lgPend){ $('lgMsg').textContent=`증빙 저장 중… ${f.name}`; try{ const u=await sendFile(id,'log',f,d.entry.id); upsertLocal('issues',u.issue); }catch(er){ toast(`${f.name}: ${er.message}`); } }
+      refresh(); lgPend=[]; pend(); setAmend(null);
+      $('lgContent').value=''; $('lgResult').value=''; $('lgParty').value=''; $('lgMethod').value=''; $('lgDate').value=TD;
+      toast(body.amends?'정정 기록을 남겼습니다':'기록을 추가했습니다');
+    }catch(er){ toast(er.message||'기록하지 못했습니다'); }
+    finally{ if($('lgAdd')){ $('lgAdd').disabled=false; $('lgMsg').textContent=''; } }
+  };
+  $('lgList').onclick=e=>{
+    const fb=e.target.closest('[data-lgf]'); if(fb){ const [li,fi]=fb.dataset.lgf.split(':'); const en=logsOf(byId(edId)).find(x=>String(x.id)===li); const f=en&&en.files[+fi]; if(f){ if(f.kind==='img') viewImage(f); else openNative(f); } return; }
+    const am=e.target.closest('[data-amend]'); if(am){ setAmend(logsOf(byId(edId)).find(x=>String(x.id)===am.dataset.amend)); }
+  };
+  renderLogList(r);
+}
+function setAmend(en){
+  lgAmend=en?en.id:null; if(!$('lgForm')) return;
+  $('lgCancel').hidden=!en; $('lgAdd').textContent=en?'정정 기록 추가':'+ 기록 추가';
+  $('lgTitle').innerHTML=en?`<b style="color:var(--warn)">✎ 정정 기록</b> — ${esc(en.date)} 기록을 바로잡습니다. 원래 기록은 그대로 남고 '정정됨'으로 표시됩니다.`
+    :'<b style="color:var(--ink)">✎ 실행 기록 남기기</b> — 실제로 한 일과 결과만 적습니다. 저장한 뒤에는 고치거나 지울 수 없고, 바로잡을 때는 정정 기록이 새로 남습니다.';
+  if(en){ $('lgDate').value=en.date||TD; $('lgKind').value=LOG_KINDS.includes(en.kind)?en.kind:'기타'; $('lgParty').value=en.party||''; $('lgMethod').value=en.method||''; $('lgContent').value=en.content; $('lgResult').value=en.result||''; $('lgContent').focus(); $('lgForm').scrollIntoView({block:'nearest',behavior:'smooth'}); }
+}
+function renderLogList(r){
+  if(!r || !$('lgList')) return;
+  const all=logsOf(r), amended=new Set(all.filter(e=>e.amends!=null).map(e=>String(e.amends)));
+  const list=all.filter(e=>!(lgHideAuto&&e.auto)).slice().sort((a,b)=>(b.date||'').localeCompare(a.date||'') || String(b.at||'').localeCompare(String(a.at||'')));
+  $('lgCount').textContent=`직접 기록 ${all.filter(e=>!e.auto).length} · 자동 ${all.filter(e=>e.auto).length}`;
+  $('lgList').innerHTML=list.map(e=>{ const old=amended.has(String(e.id));
+    return `<div class="it ${e.auto?'':'man'} ${old?'old':''}">
+      <div class="h"><b>${esc(e.date)}</b>${e.auto?'<span class="chip none">자동</span>':`<span class="chip acc">${esc(e.kind||'기록')}</span>`}${e.method?`<span class="chip none">${esc(e.method)}</span>`:''}${e.amends!=null?'<span class="chip warn">정정</span>':''}${old?'<span class="chip none">정정됨</span>':''}
+        ${e.party?`<span class="note">상대방 ${esc(e.party)}</span>`:''}<span class="note">· ${esc(e.by||'')} ${esc(String(e.at||'').slice(5,16))}</span>
+        ${!e.auto&&!old?`<button class="btn sm" type="button" data-amend="${esc(String(e.id))}" style="margin-left:auto">정정</button>`:''}</div>
+      <div class="c">${esc(e.content)}</div>${e.result?`<div class="r">${esc(e.result)}</div>`:''}
+      ${(e.files||[]).length?`<div class="fl">${e.files.map((f,i)=>`<button class="btn sm" type="button" data-lgf="${esc(String(e.id))}:${i}">📎 ${esc(f.name)}</button>`).join('')}</div>`:''}</div>`; }).join('')
+    || '<p class="note" style="margin:0">아직 기록이 없습니다. 위에서 실제로 한 일과 결과를 남기세요.</p>';
+}
+function printLog(r){
+  if(!r) return;
+  const list=logsOf(r).slice().sort((a,b)=>(a.date||'').localeCompare(b.date||'') || String(a.at).localeCompare(String(b.at)));
+  const amended=new Set(list.filter(e=>e.amends!=null).map(e=>String(e.amends)));
+  $('printArea').innerHTML=`<h1>조치 · 진행 기록 — ${esc(r.no)} ${esc(r.part)}</h1>
+    <p>발견일 ${esc(r.date)} · 발견장소 ${esc(r.line)} · 담당 ${esc(r.owner)} · 진행현황 ${overall(r)}<br>문제내용: ${esc(oneLine(r.issue))}<br>출력 ${esc(TD)} ${esc(CFG.user||'')}</p>
+    <table><thead><tr><th style="width:80px">실행일</th><th style="width:90px">구분</th><th style="width:110px">상대방 · 방법</th><th>실행 내용</th><th>결과 · 합의</th><th style="width:110px">증빙</th><th style="width:90px">작성</th></tr></thead><tbody>
+    ${list.map(e=>`<tr><td>${esc(e.date)}</td><td>${e.auto?'자동':esc(e.kind)}${e.amends!=null?' (정정)':''}${amended.has(String(e.id))?' (정정됨)':''}</td><td>${esc([e.party,e.method].filter(Boolean).join(' · '))}</td><td style="white-space:pre-line">${esc(e.content)}</td><td style="white-space:pre-line">${esc(e.result||'')}</td><td>${(e.files||[]).map(f=>esc(f.name)).join('<br>')}</td><td>${esc(e.by||'')}<br>${esc(String(e.at||'').slice(0,16))}</td></tr>`).join('')}</tbody></table>`;
+  window.print();
 }
 
 /* ================= Exit Criteria 상세 창 ================= */
@@ -746,9 +907,10 @@ function tryCloseDetail(){
 }
 function closeDetail(){ $('ovl').hidden=true; dlg=null; }
 async function saveDetail(){
-  const {id,k,state}=dlg;
+  const {id,k,state}=dlg; const before=crit(byId(id)||{},k);
   await patchIssue(id,{crit:{[k]:state}, cd:{[k]:{done:$('d-done').value, checker:$('d-checker').value.trim(), note:$('d-note').value}}});
   toast(`${CK[k].ko} 저장됨`); closeDetail();
+  if(before!==state) autoLog(id, `${CK[k].g} ${CK[k].ko}: ${SN(before)} → ${SN(state)}${state==='G'?` (완료일 ${cdOf(byId(id)||{},k).done||TD})`:''}`);
 }
 $('ovl').addEventListener('click',e=>{ if(e.target===$('ovl') && !setupOpen) tryCloseDetail(); });
 function renderDetailFiles(){
@@ -815,7 +977,9 @@ function closeViewer(){ $('pv').hidden=true; $('pvBody').innerHTML=''; pvFile=nu
 $('pvClose').onclick=closeViewer;
 $('pvOpen').onclick=()=>pvFile&&openNative(pvFile);
 if(WEB) $('pvOpen').textContent='원본 열기';
-document.addEventListener('keydown',e=>{ if(e.key!=='Escape') return; if(!$('pv').hidden) closeViewer(); else if(!$('ovl').hidden && !setupOpen) tryCloseDetail(); });
+document.addEventListener('keydown',e=>{
+  if(e.altKey && (e.key==='ArrowUp'||e.key==='ArrowDown') && edId && !$('editor').hidden && $('ovl').hidden){ const b=$(e.key==='ArrowUp'?'ePrev':'eNext'); if(b&&!b.disabled){ e.preventDefault(); b.click(); } return; }
+  if(e.key!=='Escape') return; if(!$('pv').hidden) closeViewer(); else if(!$('ovl').hidden && !setupOpen) tryCloseDetail(); else if(!$('editor').hidden) closeEditor(); });
 
 /* ================= 엑셀 내보내기 ================= */
 const csvCell=v=>{ v=String(v??''); return /[",\n\r]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; };
@@ -909,10 +1073,12 @@ async function copyMinutes(){
   const red=open.filter(r=>overall(r)==='R').sort((a,b)=>nextDate(a).localeCompare(nextDate(b)));
   const upd=lop.filter(r=>(r.updatedAt||'').slice(0,10)===TD && !r.ex).sort((a,b)=>(a.no||'').localeCompare(b.no||''));
   const late=r=>CRIT.filter(c=>isOver(r,c)).map(c=>`${c.ko}(${md(plan(r,c))})`).join(', ');
+  const todayLogs=lop.flatMap(r=>liveLogs(r).filter(e=>(e.date===TD || String(e.at||'').slice(0,10)===TD)).map(e=>({r,e})));
   const txt=[`[공정품질 신속대응회의] ${TD}`,
     `- 진행 이슈 ${open.length}건 · 진행현황 R ${red.length}건 · 봉쇄 미완료 ${open.filter(contPending).length}건`,
     '', '■ 신규 이슈', ...(neu.length?neu.map((r,i)=>`${i+1}. ${r.no} ${r.part} — ${first(r.issue)} (${who(r)})`):['(없음)']),
     '', '■ R 항목 · 계획일 초과', ...(red.length?red.map((r,i)=>`${i+1}. ${r.no} ${r.part} — 지연: ${late(r)} · ${who(r)} · 보고예정 ${md(nextDate(r))}`):['(없음)']),
+    '', '■ 오늘 실행 기록', ...(todayLogs.length?todayLogs.map(({r,e},i)=>`${i+1}. ${r.no} ${r.part} — [${e.kind}] ${oneLine(e.content)}${e.result?` → ${oneLine(e.result)}`:''}${e.party?` (${e.party}${e.method?' · '+e.method:''})`:''}`):['(없음)']),
     '', '■ 오늘 갱신된 조치', ...(upd.length?upd.map((r,i)=>`${i+1}. ${r.no} ${r.part} — ${first(r.action)||'(조치사항 미기재)'}${r.fc?` · 예상완료 ${md(r.fc)}`:''} (${who(r)})`):['(없음)'])].join('\n');
   toast(await copyText(txt)?'회의록을 복사했습니다 — 메일이나 메신저에 붙여넣으세요':'복사하지 못했습니다');
 }
@@ -1044,8 +1210,8 @@ function openSetup(reason){
 
 /* ================= 전체 다시 그리기 ================= */
 function refresh(){
-  renderTiles(); renderLines(); renderFocus(); renderLineFilter(); renderLop(); renderAgenda();
-  if(edId && !$('editor').hidden){ const r=byId(edId); if(r) $('edCrit').innerHTML=critCards(r,true); }
+  renderTiles(); renderLines(); renderFocus(); renderLineFilter(); renderLop(); renderAgenda(); markSel();
+  if(edId && !$('editor').hidden){ const r=byId(edId); if(r){ $('edCrit').innerHTML=critCards(r,true); renderLogList(r); } }
   if(dlg) renderDetailFiles();
 }
 

@@ -16,7 +16,7 @@
 (function () {
   'use strict';
   const IDB_NAME = 'qrqc', IDB_VER = 2;
-  const SCHEMA_VERSION = 1;
+  const SCHEMA_VERSION = 2;   // 2: 조치 · 진행 기록(issue_log), attachments.log_id
   const CRITS = ['cont', 'rca', 'act', 'ep', 'lpa', 'ver', 'pfmea', 'sw', 'll'];
   const STATES = ['R', 'Y', 'G', 'NA'];
   const DEFAULT_SETTINGS = { lines: ['윈도우레귤레이터 1라인', '도어래치 조립 2라인', 'PSD 모터 조립', '프레스 3공정', '사출 성형'], noFormat: 'PHA-{YY}-{MM}-{NN}' };
@@ -68,7 +68,8 @@ CREATE TABLE IF NOT EXISTS attachments(
   crit TEXT NOT NULL,
   name TEXT NOT NULL, ext TEXT, kind TEXT, size INTEGER,
   data BLOB NOT NULL,
-  created_by TEXT, created_at TEXT, deleted_by TEXT, deleted_at TEXT
+  created_by TEXT, created_at TEXT, deleted_by TEXT, deleted_at TEXT,
+  log_id INTEGER
 );
 CREATE INDEX IF NOT EXISTS ix_att_issue ON attachments(issue_id, crit);
 CREATE TABLE IF NOT EXISTS decisions(
@@ -79,6 +80,26 @@ CREATE TABLE IF NOT EXISTS decisions(
   created_by TEXT, created_at TEXT, updated_by TEXT, updated_at TEXT,
   deleted_by TEXT, deleted_at TEXT
 );
+CREATE TABLE IF NOT EXISTS issue_log(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  issue_id TEXT NOT NULL REFERENCES issues(id),
+  log_date TEXT, kind TEXT, party TEXT, method TEXT,
+  content TEXT NOT NULL, result TEXT,
+  auto INTEGER NOT NULL DEFAULT 0,
+  amends INTEGER,
+  created_by TEXT, created_at TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_log_issue ON issue_log(issue_id);
+CREATE TRIGGER IF NOT EXISTS tr_issue_log_no_update BEFORE UPDATE ON issue_log
+BEGIN SELECT RAISE(ABORT, '조치 · 진행 기록은 고칠 수 없습니다. 정정 기록을 새로 남기세요'); END;
+CREATE TRIGGER IF NOT EXISTS tr_issue_log_no_delete BEFORE DELETE ON issue_log
+BEGIN SELECT RAISE(ABORT, '조치 · 진행 기록은 지울 수 없습니다'); END;
+CREATE VIEW IF NOT EXISTS v_issue_log AS
+SELECT i.no AS 순번, i.part AS 품명, l.log_date AS 실행일, l.kind AS 구분, l.party AS 상대방, l.method AS 방법,
+       l.content AS 실행내용, l.result AS 결과합의, CASE l.auto WHEN 1 THEN '자동' ELSE '직접' END AS 기록방식,
+       l.amends AS 정정대상, l.created_by AS 작성자, l.created_at AS 작성일시
+FROM issue_log l JOIN issues i ON i.id = l.issue_id
+ORDER BY i.no, l.log_date, l.id;
 CREATE VIEW IF NOT EXISTS v_issues AS
 SELECT i.no AS 순번, i.found_date AS 발견일자, i.model AS 차종, i.part AS 품명, i.part_no AS 품번, i.line AS 발견장소,
        i.issue AS 문제내용, i.recur AS 재발유무, i.dept AS 주관부서, i.owner AS 담당,
@@ -153,9 +174,12 @@ GROUP BY i.id;`;
   const one = (sql, params, d) => rows(sql, params, d)[0];
   const run = (sql, params, d) => (d || db).run(sql, params || []);
   function initSchema(d) {
+    if (one("SELECT 1 AS x FROM sqlite_master WHERE type='table' AND name='attachments'", null, d)
+      && !rows('PRAGMA table_info(attachments)', null, d).some(c => c.name === 'log_id')) d.exec('ALTER TABLE attachments ADD COLUMN log_id INTEGER');
     d.exec(SCHEMA);
     run("INSERT OR IGNORE INTO meta(key, value) VALUES('rev', '0')", [], d);
     run("INSERT OR IGNORE INTO meta(key, value) VALUES('schema_version', ?)", [String(SCHEMA_VERSION)], d);
+    run("UPDATE meta SET value = ? WHERE key = 'schema_version' AND CAST(value AS INTEGER) < ?", [String(SCHEMA_VERSION), SCHEMA_VERSION], d);
     for (const k in DEFAULT_SETTINGS) run('INSERT OR IGNORE INTO settings(key, value) VALUES(?, ?)', [k, JSON.stringify(DEFAULT_SETTINGS[k])], d);
   }
   const dbRev = d => +((one("SELECT value FROM meta WHERE key = 'rev'", null, d) || {}).value || 0);
@@ -255,8 +279,17 @@ GROUP BY i.id;`;
       o.crit[r.crit] = r.state;
       o.cd[r.crit] = { note: r.note || '', done: r.done_date || '', checker: r.checker || '', files: [] };
     }
-    for (const r of rows('SELECT id, issue_id, crit, name, ext, kind, size, created_by, created_at FROM attachments WHERE deleted_at IS NULL' + (onlyId ? ' AND issue_id = ?' : '') + ' ORDER BY id', onlyId ? [onlyId] : null)) {
+    const logs = {};
+    for (const o of Object.values(out)) o.log = [];
+    for (const r of rows('SELECT * FROM issue_log' + (onlyId ? ' WHERE issue_id = ?' : '') + ' ORDER BY id', onlyId ? [onlyId] : null)) {
       const o = out[r.issue_id]; if (!o) continue;
+      const e = { id: r.id, date: r.log_date || '', kind: r.kind || '', party: r.party || '', method: r.method || '', content: r.content || '',
+        result: r.result || '', auto: !!r.auto, amends: r.amends, by: r.created_by || '', at: r.created_at || '', files: [] };
+      o.log.push(e); logs[r.id] = e;
+    }
+    for (const r of rows('SELECT id, issue_id, crit, name, ext, kind, size, created_by, created_at, log_id FROM attachments WHERE deleted_at IS NULL' + (onlyId ? ' AND issue_id = ?' : '') + ' ORDER BY id', onlyId ? [onlyId] : null)) {
+      const o = out[r.issue_id]; if (!o) continue;
+      if (r.crit === 'log') { if (logs[r.log_id]) logs[r.log_id].files.push(attMeta(r)); continue; }
       (o.cd[r.crit] = o.cd[r.crit] || { note: '', done: '', checker: '', files: [] }).files.push(attMeta(r));
     }
     return out;
@@ -309,24 +342,43 @@ GROUP BY i.id;`;
     if (!size) throw err(400, '빈 파일입니다');
     return ext;
   }
-  async function upload(issueId, crit, file) {
-    if (!ID_RE.test(issueId) || !CRITS.includes(crit)) throw err(400, '잘못된 요청입니다');
+  // 조치 · 진행 기록 (적립식: 추가만, 고칠 때는 정정 기록을 새로)
+  function addLog(issueId, b) {
+    const content = String(b.content || '').trim();
+    if (!content) throw err(400, '실행 내용을 입력하세요');
+    let amends = null;
+    if (b.amends != null && b.amends !== '') {
+      amends = parseInt(b.amends, 10);
+      if (!one('SELECT 1 AS x FROM issue_log WHERE id = ? AND issue_id = ?', [amends, issueId])) throw err(404, '정정할 기록을 찾을 수 없습니다');
+    }
+    run('INSERT INTO issue_log(issue_id, log_date, kind, party, method, content, result, auto, amends, created_by, created_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [issueId, String(b.date || nowStr()).slice(0, 10), String(b.kind || '').slice(0, 40), String(b.party || '').slice(0, 120), String(b.method || '').slice(0, 40),
+        content.slice(0, 4000), String(b.result || '').trim().slice(0, 4000), b.auto ? 1 : 0, amends, user(), nowStr()]);
+    const id = one('SELECT last_insert_rowid() AS id').id;
+    run('UPDATE issues SET updated_by = ?, updated_at = ? WHERE id = ?', [user(), nowStr(), issueId]);
+    return id;
+  }
+  async function upload(issueId, crit, file, logId) {
+    if (!ID_RE.test(issueId) || (!CRITS.includes(crit) && crit !== 'log')) throw err(400, '잘못된 요청입니다');
+    if (crit === 'log' && !(parseInt(logId, 10) > 0)) throw err(400, '잘못된 기록 번호입니다');
     const name = String(file.name || 'file').split(/[\\/]/).pop().slice(0, 120), ext = checkFile(name, file.size);
     const blob = file.slice(0, file.size, file.type || ALLOWED[ext][1]);
     let aid;
     const issue = await write(async () => {
       if (!loadIssue(issueId)) throw err(404, '이슈를 찾을 수 없습니다');
-      run('INSERT INTO attachments(issue_id, crit, name, ext, kind, size, data, created_by, created_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)',
-        [issueId, crit, name, ext, ALLOWED[ext][0], file.size, new Uint8Array(0), user(), nowStr()]);
+      if (crit === 'log' && !one('SELECT 1 AS x FROM issue_log WHERE id = ? AND issue_id = ?', [+logId, issueId])) throw err(404, '기록을 찾을 수 없습니다');
+      run('INSERT INTO attachments(issue_id, crit, name, ext, kind, size, data, created_by, created_at, log_id) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [issueId, crit, name, ext, ALLOWED[ext][0], file.size, new Uint8Array(0), user(), nowStr(), crit === 'log' ? +logId : null]);
       aid = one('SELECT last_insert_rowid() AS id').id;
       run('UPDATE issues SET updated_by = ?, updated_at = ? WHERE id = ?', [user(), nowStr(), issueId]);
       await blobPut(aid, blob);   // 원본을 먼저 저장하고 나서 DB 를 확정
       return loadIssue(issueId);
     });
-    return { file: issue.cd[crit].files.find(f => f.id === aid), issue };
+    const files = crit === 'log' ? issue.log.find(e => e.id === +logId).files : issue.cd[crit].files;
+    return { file: files.find(f => f.id === aid), issue };
   }
   function attRow(id) {
-    const r = one('SELECT id, issue_id, name, ext, kind, size, data FROM attachments WHERE id = ? AND deleted_at IS NULL', [+id]);
+    const r = one('SELECT id, issue_id, crit, name, ext, kind, size, data FROM attachments WHERE id = ? AND deleted_at IS NULL', [+id]);
     if (!r) throw err(404, '첨부를 찾을 수 없습니다');
     return r;
   }
@@ -458,6 +510,16 @@ GROUP BY i.id;`;
         return settings();
       });
     }
+    const lg = p.match(/^issues\/([^/]+)\/log$/);
+    if (lg && method === 'POST') {
+      if (!ID_RE.test(lg[1])) throw err(400, '잘못된 문서 번호입니다');
+      return write(async () => {
+        if (!loadIssue(lg[1])) throw err(404, '이슈를 찾을 수 없습니다');
+        const id = addLog(lg[1], body || {});
+        const issue = loadIssue(lg[1]);
+        return { entry: issue.log.find(e => e.id === id), issue };
+      });
+    }
     const m = p.match(/^(issues|decisions)\/([^/]+)$/);
     if (m) {
       const [, col, id] = m;
@@ -478,6 +540,7 @@ GROUP BY i.id;`;
     if (p === 'attach/delete') {
       return write(async () => {
         const r = attRow(body.att);
+        if (r.crit === 'log') throw err(403, '조치 · 진행 기록의 증빙은 지울 수 없습니다');
         run('UPDATE attachments SET deleted_by = ?, deleted_at = ? WHERE id = ?', [user(), nowStr(), r.id]);
         run('UPDATE issues SET updated_by = ?, updated_at = ? WHERE id = ?', [user(), nowStr(), r.issue_id]);
         return { issue: loadIssue(r.issue_id) };

@@ -37,7 +37,7 @@ VERSION = '1.7.0'
 APP_TITLE = '공정품질 신속대응회의'
 IS_WIN = os.name == 'nt'
 DB_NAME = 'qrqc.db'
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2   # 2: 조치 · 진행 기록(issue_log), attachments.log_id
 MAX_ATTACH = 50 * 1024 * 1024
 BACKUP_KEEP = 30
 
@@ -131,7 +131,8 @@ CREATE TABLE IF NOT EXISTS attachments(
   crit TEXT NOT NULL,
   name TEXT NOT NULL, ext TEXT, kind TEXT, size INTEGER,
   data BLOB NOT NULL,            -- 원본 파일
-  created_by TEXT, created_at TEXT, deleted_by TEXT, deleted_at TEXT
+  created_by TEXT, created_at TEXT, deleted_by TEXT, deleted_at TEXT,
+  log_id INTEGER                 -- 조치 · 진행 기록의 증빙이면 그 기록 번호 (crit = 'log')
 );
 CREATE INDEX IF NOT EXISTS ix_att_issue ON attachments(issue_id, crit);
 CREATE TABLE IF NOT EXISTS decisions(
@@ -142,6 +143,31 @@ CREATE TABLE IF NOT EXISTS decisions(
   created_by TEXT, created_at TEXT, updated_by TEXT, updated_at TEXT,
   deleted_by TEXT, deleted_at TEXT
 );
+-- 조치 · 진행 기록: 적립식(추가만 가능). 고칠 때는 정정 기록을 새로 남기고 원래 기록은 그대로 둠
+CREATE TABLE IF NOT EXISTS issue_log(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  issue_id TEXT NOT NULL REFERENCES issues(id),
+  log_date TEXT,                 -- 실행일
+  kind TEXT,                     -- 구분 (현장 조치, 협력사 연락 …)
+  party TEXT,                    -- 상대방
+  method TEXT,                   -- 방법 (대면, 전화, 메일 …)
+  content TEXT NOT NULL,         -- 실행 내용
+  result TEXT,                   -- 결과 · 합의 사항
+  auto INTEGER NOT NULL DEFAULT 0,   -- 1 = 프로그램이 자동으로 남긴 기록 (상태 변경 등)
+  amends INTEGER,                -- 정정 기록이면 원래 기록 번호
+  created_by TEXT, created_at TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_log_issue ON issue_log(issue_id);
+CREATE TRIGGER IF NOT EXISTS tr_issue_log_no_update BEFORE UPDATE ON issue_log
+BEGIN SELECT RAISE(ABORT, '조치 · 진행 기록은 고칠 수 없습니다. 정정 기록을 새로 남기세요'); END;
+CREATE TRIGGER IF NOT EXISTS tr_issue_log_no_delete BEFORE DELETE ON issue_log
+BEGIN SELECT RAISE(ABORT, '조치 · 진행 기록은 지울 수 없습니다'); END;
+CREATE VIEW IF NOT EXISTS v_issue_log AS
+SELECT i.no AS 순번, i.part AS 품명, l.log_date AS 실행일, l.kind AS 구분, l.party AS 상대방, l.method AS 방법,
+       l.content AS 실행내용, l.result AS 결과합의, CASE l.auto WHEN 1 THEN '자동' ELSE '직접' END AS 기록방식,
+       l.amends AS 정정대상, l.created_by AS 작성자, l.created_at AS 작성일시
+FROM issue_log l JOIN issues i ON i.id = l.issue_id
+ORDER BY i.no, l.log_date, l.id;
 CREATE VIEW IF NOT EXISTS v_issues AS
 SELECT i.no AS 순번, i.found_date AS 발견일자, i.model AS 차종, i.part AS 품명, i.part_no AS 품번, i.line AS 발견장소,
        i.issue AS 문제내용, i.recur AS 재발유무, i.dept AS 주관부서, i.owner AS 담당,
@@ -260,9 +286,14 @@ def tx(con):
 
 
 def init_db(con, d):
+    # v1 → v2: attachments 에 log_id 열 추가 (CREATE TABLE IF NOT EXISTS 는 기존 표를 바꾸지 않음)
+    if con.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='attachments'").fetchone():
+        if 'log_id' not in [r[1] for r in con.execute('PRAGMA table_info(attachments)')]:
+            con.execute('ALTER TABLE attachments ADD COLUMN log_id INTEGER')
     con.executescript(SCHEMA)
     con.execute("INSERT OR IGNORE INTO meta(key, value) VALUES('rev', '0')")
     con.execute("INSERT OR IGNORE INTO meta(key, value) VALUES('schema_version', ?)", (str(SCHEMA_VERSION),))
+    con.execute("UPDATE meta SET value = ? WHERE key = 'schema_version' AND CAST(value AS INTEGER) < ?", (str(SCHEMA_VERSION), SCHEMA_VERSION))
     for k, v in DEFAULT_SETTINGS.items():
         con.execute('INSERT OR IGNORE INTO settings(key, value) VALUES(?, ?)', (k, json.dumps(v, ensure_ascii=False)))
     migrate_json(con, d)
@@ -320,15 +351,59 @@ def load_issues(con, only_id=None):
             continue
         o['crit'][r['crit']] = r['state']
         o['cd'][r['crit']] = {'note': r['note'] or '', 'done': r['done_date'] or '', 'checker': r['checker'] or '', 'files': []}
-    q = ('SELECT id, issue_id, crit, name, ext, kind, size, created_by, created_at FROM attachments '
+    logs = {}
+    q = 'SELECT * FROM issue_log' + (' WHERE issue_id = ?' if only_id else '') + ' ORDER BY id'
+    for r in con.execute(q, (only_id,) if only_id else ()):
+        o = out.get(r['issue_id'])
+        if o is None:
+            continue
+        e = log_obj(r)
+        o.setdefault('log', []).append(e)
+        logs[r['id']] = e
+    q = ('SELECT id, issue_id, crit, name, ext, kind, size, created_by, created_at, log_id FROM attachments '
          'WHERE deleted_at IS NULL' + (' AND issue_id = ?' if only_id else '') + ' ORDER BY id')
     for r in con.execute(q, (only_id,) if only_id else ()):
         o = out.get(r['issue_id'])
         if o is None:
             continue
+        if r['crit'] == 'log':
+            if r['log_id'] in logs:
+                logs[r['log_id']]['files'].append(att_meta(r))
+            continue
         cd = o['cd'].setdefault(r['crit'], {'note': '', 'done': '', 'checker': '', 'files': []})
         cd['files'].append(att_meta(r))
+    for o in out.values():
+        o.setdefault('log', [])
     return out
+
+
+def log_obj(r):
+    return {'id': r['id'], 'date': r['log_date'] or '', 'kind': r['kind'] or '', 'party': r['party'] or '',
+            'method': r['method'] or '', 'content': r['content'] or '', 'result': r['result'] or '',
+            'auto': bool(r['auto']), 'amends': r['amends'], 'by': r['created_by'] or '', 'at': r['created_at'] or '', 'files': []}
+
+
+def add_log(con, iid, b):
+    content = str(b.get('content') or '').strip()
+    if not content:
+        raise ApiError(400, '실행 내용을 입력하세요')
+    amends = b.get('amends')
+    if amends not in (None, ''):
+        try:
+            amends = int(amends)
+        except (TypeError, ValueError):
+            raise ApiError(400, '잘못된 정정 대상입니다')
+        if not con.execute('SELECT 1 FROM issue_log WHERE id = ? AND issue_id = ?', (amends, iid)).fetchone():
+            raise ApiError(404, '정정할 기록을 찾을 수 없습니다')
+    else:
+        amends = None
+    cur = con.execute('INSERT INTO issue_log(issue_id, log_date, kind, party, method, content, result, auto, amends, created_by, created_at) '
+                      'VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                      (iid, str(b.get('date') or now_str()[:10])[:10], str(b.get('kind') or '')[:40], str(b.get('party') or '')[:120],
+                       str(b.get('method') or '')[:40], content[:4000], str(b.get('result') or '').strip()[:4000],
+                       1 if b.get('auto') else 0, amends, USER, now_str()))
+    con.execute('UPDATE issues SET updated_by = ?, updated_at = ? WHERE id = ?', (USER, now_str(), iid))
+    return cur.lastrowid
 
 
 def load_issue(con, iid):
@@ -738,20 +813,29 @@ class Handler(BaseHTTPRequestHandler):
             data = self.body_bytes(MAX_ATTACH)
             if not data:
                 raise ApiError(400, '빈 파일입니다')
-            if not ID_RE.match(iid) or crit not in CRITS:
+            if not ID_RE.match(iid) or (crit not in CRITS and crit != 'log'):
                 raise ApiError(400, '잘못된 요청입니다')
+            log_id = None
+            if crit == 'log':
+                try:
+                    log_id = int(q.get('log', ''))
+                except ValueError:
+                    raise ApiError(400, '잘못된 기록 번호입니다')
             with DB_LOCK:
                 con, _ = get_db()
                 if not load_issue(con, iid):
                     raise ApiError(404, '이슈를 찾을 수 없습니다')
+                if log_id is not None and not con.execute('SELECT 1 FROM issue_log WHERE id = ? AND issue_id = ?', (log_id, iid)).fetchone():
+                    raise ApiError(404, '기록을 찾을 수 없습니다')
                 with tx(con):
-                    cur = con.execute('INSERT INTO attachments(issue_id, crit, name, ext, kind, size, data, created_by, created_at) '
-                                      'VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                                      (iid, crit, name, ext, ALLOWED[ext][0], len(data), sqlite3.Binary(data), USER, now_str()))
+                    cur = con.execute('INSERT INTO attachments(issue_id, crit, name, ext, kind, size, data, created_by, created_at, log_id) '
+                                      'VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                                      (iid, crit, name, ext, ALLOWED[ext][0], len(data), sqlite3.Binary(data), USER, now_str(), log_id))
                     con.execute('UPDATE issues SET updated_by = ?, updated_at = ? WHERE id = ?', (USER, now_str(), iid))
                 aid = cur.lastrowid
                 issue = load_issue(con, iid)
-                meta = next(f for f in issue['cd'][crit]['files'] if f['id'] == aid)
+                files = next(e for e in issue['log'] if e['id'] == log_id)['files'] if log_id is not None else issue['cd'][crit]['files']
+                meta = next(f for f in files if f['id'] == aid)
             return self.send_json({'file': meta, 'issue': issue})
 
         with DB_LOCK:
@@ -785,6 +869,17 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json({'path': t, 'lastBackup': last_backup(d)})
 
             parts = p.split('/')
+            if len(parts) == 3 and parts[0] == 'issues' and parts[2] == 'log' and m == 'POST':
+                iid = parts[1]
+                if not ID_RE.match(iid):
+                    raise ApiError(400, '잘못된 문서 번호입니다')
+                if not load_issue(con, iid):
+                    raise ApiError(404, '이슈를 찾을 수 없습니다')
+                b = self.body_json()
+                with tx(con):
+                    lid = add_log(con, iid, b)
+                issue = load_issue(con, iid)
+                return self.send_json({'entry': next(e for e in issue['log'] if e['id'] == lid), 'issue': issue})
             if len(parts) == 2 and parts[0] in ('issues', 'decisions'):
                 col, did = parts
                 if not ID_RE.match(did):
@@ -816,6 +911,8 @@ class Handler(BaseHTTPRequestHandler):
             if p == 'attach/delete' and m == 'POST':
                 b = self.body_json()
                 r = att_row(con, b.get('att'))
+                if r['crit'] == 'log':
+                    raise ApiError(403, '조치 · 진행 기록의 증빙은 지울 수 없습니다')
                 with tx(con):
                     con.execute('UPDATE attachments SET deleted_by = ?, deleted_at = ? WHERE id = ?', (USER, now_str(), r['id']))
                     con.execute('UPDATE issues SET updated_by = ?, updated_at = ? WHERE id = ?', (USER, now_str(), r['issue_id']))
