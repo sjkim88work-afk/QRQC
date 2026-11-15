@@ -13,7 +13,7 @@
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <title>공정품질 신속대응회의</title>
 <style>
-/* Layout: 상단 회의바 → 회의 순서 → 탭(대시보드 / 추적표 / 결정사항 / 실적 입력 / 설정) */
+/* Layout: 상단 회의바 → 회의 순서 → 탭(대시보드 / 추적표 / 설정) */
 :root{
   --bg:#f3f5f8; --panel:#ffffff; --ink:#152033; --muted:#5d6b80; --line:#dde3ec; --soft:#eef2f7;
   --accent:#1f5fd1; --accent-ink:#ffffff; --scrim:rgba(14,22,36,.55);
@@ -33,7 +33,7 @@ html,body{margin:0}
 html{scrollbar-gutter:stable}   /* 탭을 바꿔 세로 스크롤바가 생기거나 없어져도 폭이 흔들리지 않게 */
 body{background:var(--bg);color:var(--ink);font-family:var(--f-ui);font-size:14px;line-height:1.5;padding:18px 20px 40px}
 [hidden]{display:none!important}
-/* 모든 탭(대시보드 · 추적표 · 결정사항 · 설정)이 같은 폭: 화면 전체 폭을 씀 */
+/* 모든 탭(대시보드 · 추적표 · 설정)이 같은 폭: 화면 전체 폭을 씀 */
 .wrap{margin:0 auto;display:grid;gap:14px;min-width:0}
 .num{font-family:var(--f-num);font-variant-numeric:tabular-nums}
 header.top{display:flex;flex-wrap:wrap;gap:12px 24px;align-items:flex-end;justify-content:space-between;border-bottom:2px solid var(--ink);padding-bottom:12px}
@@ -166,12 +166,6 @@ textarea{min-height:52px;resize:vertical}
 .pv .ph b{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pv .pb{overflow:auto;padding:16px;display:grid;place-items:center}
 .pv .pb img{max-width:100%;max-height:calc(100vh - 100px);object-fit:contain}
-.decform{display:grid;grid-template-columns:2fr 1.2fr 1fr 150px auto;gap:8px}
-@media (max-width:760px){.decform{grid-template-columns:1fr 1fr}.decform #dc-text{grid-column:1/-1}}
-.dl{display:grid;gap:6px}
-.dr{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto auto auto;gap:10px;align-items:center;border:1px solid var(--line);border-radius:4px;padding:8px 10px}
-.dr input[type="checkbox"]{width:18px;height:18px}
-.dr.done .tx{text-decoration:line-through;color:var(--muted)}
 .setgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}
 .setgrid label{display:grid;gap:4px;font-size:12px;color:var(--muted)}
 .setgrid textarea{min-height:170px}
@@ -230,8 +224,6 @@ body.meet td.act.open .clamp{display:block;cursor:zoom-out}
   .btn{padding:8px 12px}
   .stsel button{flex:1 1 40%;justify-content:center;padding:8px}
   .pv .ph{padding-top:calc(10px + env(safe-area-inset-top,0px))}
-  .decform{grid-template-columns:1fr 1fr}
-  .dr{grid-template-columns:auto minmax(0,1fr)} .dr > :nth-child(n+3){grid-column:2}
 }
 .toast{position:fixed;right:16px;bottom:calc(16px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--bg);padding:8px 14px;border-radius:4px;font-size:13px;z-index:50;max-width:calc(100% - 32px)}
 </style>
@@ -256,14 +248,13 @@ body.meet td.act.open .clamp{display:block;cursor:zoom-out}
     <button data-step="3"><b>3</b>24HR 봉쇄조치 확인<span class="cnt" id="ac3"></span></button>
     <button data-step="4"><b>4</b>Exit Criteria 점검<span class="cnt" id="ac4"></span></button>
     <button data-step="5"><b>5</b>R 항목 에스컬레이션<span class="cnt" id="ac5"></span></button>
-    <button data-step="6"><b>6</b>결정사항·담당 확정<span class="cnt" id="ac6"></span></button>
+    <button data-step="6"><b>6</b>회의록 정리<span class="cnt" id="ac6"></span></button>
     <span class="run" id="mRun" hidden><span>경과 <span id="mElapsed">00:00</span> / 20:00</span><button class="btn sm" id="mNext">다음 단계 ›</button><button class="btn sm" id="mReset">초기화</button></span>
   </nav>
 
   <nav class="tabs" role="tablist">
     <button role="tab" id="tDash" aria-selected="true">대시보드</button>
     <button role="tab" id="tLop" aria-selected="false">신속대응 추적표 <span class="num" id="lopCnt"></span></button>
-    <button role="tab" id="tDec" aria-selected="false">회의 결정사항 <span class="num" id="decCnt"></span></button>
     <span class="sp"></span>
     <button role="tab" id="tSet" aria-selected="false">설정</button>
   </nav>
@@ -272,7 +263,7 @@ body.meet td.act.open .clamp{display:block;cursor:zoom-out}
   <section id="vDash" class="wrap" style="gap:12px">
     <div class="tiles" id="tiles"></div>
     <div class="card"><h2>라인별 이슈 현황 <small>발견장소 기준 · 종결 제외</small></h2><div class="lines" id="lines"></div></div>
-    <div class="card"><h2>오늘 다룰 항목 <small>진행현황 R · 최근 2일 신규 · 보고예정일 도래</small></h2>
+    <div class="card"><h2>오늘 다룰 항목 <span style="display:flex;gap:8px;align-items:center"><small>진행현황 R · 최근 2일 신규 · 보고예정일 도래</small><button class="btn sm" id="bMinutes" type="button">회의록 복사</button></span></h2>
       <div class="tbl" style="border:0"><table style="min-width:820px"><thead><tr><th>진행</th><th>순번</th><th>발견장소</th><th>품명</th><th style="text-align:left">문제내용</th><th>담당</th><th>보고예정일</th><th>Exit Criteria<small>24H → 14D</small></th></tr></thead><tbody id="focus"></tbody></table></div>
     </div>
   </section>
@@ -314,24 +305,9 @@ body.meet td.act.open .clamp{display:block;cursor:zoom-out}
     </table></div>
   </section>
 
-  <!-- 회의 결정사항 -->
-  <section id="vDec" class="wrap" style="gap:12px" hidden>
-    <div class="card"><h2>결정사항 추가 <small id="decDate"></small></h2>
-      <form id="decForm" class="decform">
-        <input id="dc-text" placeholder="결정 내용 (예: EOL 소음 기준 강화, 금일부터 전수 재판정)" aria-label="결정 내용" required>
-        <select id="dc-issue" aria-label="관련 이슈"></select>
-        <input id="dc-owner" placeholder="담당" aria-label="담당" required>
-        <input id="dc-due" type="date" aria-label="기한" required>
-        <button class="btn pri" type="submit">추가</button>
-      </form>
-    </div>
-    <div class="card"><h2>오늘 회의 결정 <span style="display:flex;gap:8px;align-items:center"><small id="decTodayCnt"></small><button class="btn sm" id="bMinutes">회의록 복사</button></span></h2><div class="dl" id="decToday"></div></div>
-    <div class="card"><h2>이전 회의 미완료 <small id="decOldCnt"></small></h2><div class="dl" id="decOld"></div></div>
-  </section>
-
   <!-- 설정 -->
   <section id="vSet" class="wrap" style="gap:12px" hidden>
-    <div class="card"><h2 id="sHead">데이터베이스 <small>이슈·Exit Criteria 상세·첨부·결정사항이 모두 qrqc.db 파일 하나에 저장됩니다</small></h2>
+    <div class="card"><h2 id="sHead">데이터베이스 <small>이슈·Exit Criteria 상세·첨부·설정이 모두 qrqc.db 파일 하나에 저장됩니다</small></h2>
       <div style="display:grid;gap:8px">
         <div class="path" id="sDir"></div>
         <div class="note" id="sDbInfo"></div>
@@ -870,13 +846,13 @@ $('bZp').onclick=()=>{ view.fit=false; view.zoom=Math.min(2,Math.round((view.zoo
 let rz; window.addEventListener('resize',()=>{ clearTimeout(rz); rz=setTimeout(()=>{ if(view.fit) applyView(); },150); });
 
 function show(v){
-  const V={dash:['vDash','tDash'],lop:['vLop','tLop'],dec:['vDec','tDec'],set:['vSet','tSet']};
+  const V={dash:['vDash','tDash'],lop:['vLop','tLop'],set:['vSet','tSet']};
   for(const k in V){ $(V[k][0]).hidden=k!==v; $(V[k][1]).setAttribute('aria-selected',k===v); }
   document.body.classList.toggle('wide', v==='lop');
   if(v==='lop') applyView();
   if(v==='set') renderSettings();
 }
-$('tDash').onclick=()=>show('dash'); $('tLop').onclick=()=>show('lop'); $('tDec').onclick=()=>show('dec'); $('tSet').onclick=()=>show('set');
+$('tDash').onclick=()=>show('dash'); $('tLop').onclick=()=>show('lop'); $('tSet').onclick=()=>show('set');
 $('fStat').addEventListener('input',()=>{ if(qf) setQF(null); });
 ['q','fLine','fStat'].forEach(i=>$(i).addEventListener('input',renderLop));
 $('bAdd').onclick=()=>openEditor(null);
@@ -894,7 +870,7 @@ const STEPS={
   3:()=>{ show('lop'); setQF('cont'); },
   4:()=>{ show('lop'); setQF('open'); },
   5:()=>{ show('lop'); setQF('red'); },
-  6:()=>{ show('dec'); setQF(null); $('dc-text').focus(); },
+  6:()=>{ show('dash'); setQF(null); copyMinutes(); },
 };
 function goStep(n){
   if(n!==2 && !$('editor').hidden && !edId) $('editor').hidden=true;
@@ -915,7 +891,7 @@ function renderAgenda(){
   const open=lop.filter(r=>!isDone(r));
   const c={1:['',false], 2:[loaded?`신규 ${lop.filter(r=>r.date>=dAdd(-1)).length}`:'',false],
     3:[loaded?`${open.filter(contPending).length}`:'', open.some(contPending)], 4:[loaded?`${open.length}`:'',false],
-    5:[loaded?`${open.filter(r=>overall(r)==='R').length}`:'', open.some(r=>overall(r)==='R')], 6:[`${decs.filter(d=>d.date===TD).length}`,false]};
+    5:[loaded?`${open.filter(r=>overall(r)==='R').length}`:'', open.some(r=>overall(r)==='R')], 6:['',false]};
   for(let n=1;n<=6;n++){ const el=$('ac'+n); el.textContent=c[n][0]; el.classList.toggle('hot',!!c[n][1]); }
   $('agenda').querySelectorAll('button[data-step]').forEach(b=>{ const n=+b.dataset.step;
     if(n===meet.cur) b.setAttribute('aria-current','step'); else b.removeAttribute('aria-current');
@@ -923,64 +899,32 @@ function renderAgenda(){
   tick();
 }
 
-/* ================= 회의 결정사항 ================= */
-const putDec=r=>putDoc('decisions',r), patchDec=(i,o)=>patchDoc('decisions',i,o), delDec=i=>delDoc('decisions',i);
-$('dc-due').value=dAdd(3);
-function decRow(d){
-  const iss=d.issueId&&byId(d.issueId), over=!d.done&&d.due&&d.due<TD;
-  return `<div class="dr ${d.done?'done':''}" data-d="${esc(d.id)}">
-    <input type="checkbox" data-dchk aria-label="완료 표시" ${d.done?'checked':''}>
-    <span class="tx">${esc(d.text)}${d.date<TD?` <span class="note num">(${md(d.date)} 회의)</span>`:''}</span>
-    ${iss?`<button class="btn sm" data-dissue="${esc(iss.id)}">${esc(iss.no)}</button>`:d.issueNo?`<span class="note num">${esc(d.issueNo)}</span>`:'<span></span>'}
-    <span>${esc(d.owner)}</span>
-    <span class="num" style="${over?'color:var(--bad);font-weight:600':''}">${md(d.due)}${over?' 초과':''}</span>
-    <span data-dact><button class="btn sm del" data-ddel>삭제</button></span></div>`;
-}
-function renderDec(){
-  $('decDate').textContent=`${TD} 회의`;
-  const sel=$('dc-issue'), keep=sel.value;
-  sel.innerHTML='<option value="">관련 이슈 (선택)</option>'+lop.filter(r=>!isDone(r)).sort((a,b)=>(a.no||'').localeCompare(b.no||'')).map(r=>`<option value="${esc(r.id)}">${esc(r.no)} · ${esc(r.part)}</option>`).join('');
-  sel.value=keep;
-  const today=decs.filter(d=>d.date===TD).sort((a,b)=>(a.at||0)-(b.at||0));
-  const old=decs.filter(d=>d.date<TD && !d.done).sort((a,b)=>(a.due||'').localeCompare(b.due||''));
-  $('decToday').innerHTML=today.map(decRow).join('') || '<p class="note" style="margin:0">오늘 확정된 결정사항이 없습니다. 위 입력란에 내용·담당·기한을 넣고 추가하세요.</p>';
-  $('decOld').innerHTML=old.map(decRow).join('') || '<p class="note" style="margin:0">이전 회의에서 넘어온 미완료 결정사항이 없습니다.</p>';
-  $('decTodayCnt').textContent=today.length?`${today.length}건 · 완료 ${today.filter(d=>d.done).length}`:'';
-  $('decOldCnt').textContent=old.length?`${old.length}건 · 기한 초과 ${old.filter(d=>d.due<TD).length}`:'';
-  const pend=decs.filter(d=>!d.done).length; $('decCnt').textContent=pend?`(${pend})`:'';
-}
-$('decForm').onsubmit=async e=>{
-  e.preventDefault();
-  const iss=byId($('dc-issue').value);
-  await putDec({id:newId(),date:TD,at:Date.now(),text:$('dc-text').value.trim(),issueId:iss?iss.id:'',issueNo:iss?iss.no:'',owner:$('dc-owner').value.trim(),due:$('dc-due').value,done:false,doneAt:''});
-  $('dc-text').value=''; $('dc-owner').value=''; $('dc-issue').value=''; $('dc-text').focus(); toast('결정사항을 추가했습니다');
-};
-$('vDec').addEventListener('change',e=>{ const ck=e.target.closest('[data-dchk]'); if(!ck) return; patchDec(ck.closest('[data-d]').dataset.d,{done:ck.checked,doneAt:ck.checked?TD:''}); });
-$('vDec').addEventListener('click',e=>{
-  const row=e.target.closest('[data-d]'); if(!row) return; const id=row.dataset.d;
-  const is=e.target.closest('[data-dissue]'); if(is){ show('lop'); openEditor(is.dataset.dissue); return; }
-  if(e.target.closest('[data-ddel]')){ row.querySelector('[data-dact]').innerHTML='<span class="confirm">삭제할까요? <button class="btn sm del" data-ddelok>삭제</button><button class="btn sm" data-ddelno>취소</button></span>'; return; }
-  if(e.target.closest('[data-ddelno]')){ renderDec(); return; }
-  if(e.target.closest('[data-ddelok]')){ delDec(id); toast('결정사항을 삭제했습니다'); }
-});
-$('bMinutes').onclick=async()=>{
+/* ================= 회의록 (추적표 기준) ================= */
+// 결정 · 조치는 각 이슈의 조치사항과 Exit Criteria 상세에 기록하고, 회의록은 그 내용으로 만듭니다
+async function copyMinutes(){
   const open=lop.filter(r=>!isDone(r));
-  const line=d=>`${d.text} — 담당 ${d.owner}, 기한 ${md(d.due)}${d.issueNo?` (${d.issueNo})`:''}${d.done?' [완료]':''}`;
-  const today=decs.filter(d=>d.date===TD).sort((a,b)=>(a.at||0)-(b.at||0));
-  const old=decs.filter(d=>d.date<TD && !d.done).sort((a,b)=>(a.due||'').localeCompare(b.due||''));
+  const who=r=>[r.line,r.owner&&('담당 '+r.owner)].filter(Boolean).join(', ');
+  const first=t=>String(t||'').split('\n').map(x=>x.trim()).filter(Boolean).join(' / ');
+  const neu=open.filter(r=>r.date>=dAdd(-2)).sort((a,b)=>a.date.localeCompare(b.date));
+  const red=open.filter(r=>overall(r)==='R').sort((a,b)=>nextDate(a).localeCompare(nextDate(b)));
+  const upd=lop.filter(r=>(r.updatedAt||'').slice(0,10)===TD && !r.ex).sort((a,b)=>(a.no||'').localeCompare(b.no||''));
+  const late=r=>CRIT.filter(c=>isOver(r,c)).map(c=>`${c.ko}(${md(plan(r,c))})`).join(', ');
   const txt=[`[공정품질 신속대응회의] ${TD}`,
-    `- 진행 이슈 ${open.length}건 · 진행현황 R ${open.filter(r=>overall(r)==='R').length}건 · 봉쇄 미완료 ${open.filter(contPending).length}건`,
-    '','■ 결정사항', ...(today.length?today.map((d,i)=>`${i+1}. ${line(d)}`):['(없음)']),
-    ...(old.length?['','■ 이전 회의 미완료', ...old.map((d,i)=>`${i+1}. ${line(d)} — ${md(d.date)} 회의`)]:[])].join('\n');
+    `- 진행 이슈 ${open.length}건 · 진행현황 R ${red.length}건 · 봉쇄 미완료 ${open.filter(contPending).length}건`,
+    '', '■ 신규 이슈', ...(neu.length?neu.map((r,i)=>`${i+1}. ${r.no} ${r.part} — ${first(r.issue)} (${who(r)})`):['(없음)']),
+    '', '■ R 항목 · 계획일 초과', ...(red.length?red.map((r,i)=>`${i+1}. ${r.no} ${r.part} — 지연: ${late(r)} · ${who(r)} · 보고예정 ${md(nextDate(r))}`):['(없음)']),
+    '', '■ 오늘 갱신된 조치', ...(upd.length?upd.map((r,i)=>`${i+1}. ${r.no} ${r.part} — ${first(r.action)||'(조치사항 미기재)'}${r.fc?` · 예상완료 ${md(r.fc)}`:''} (${who(r)})`):['(없음)'])].join('\n');
   toast(await copyText(txt)?'회의록을 복사했습니다 — 메일이나 메신저에 붙여넣으세요':'복사하지 못했습니다');
-};
+}
+
+$('bMinutes').onclick=copyMinutes;
 
 /* ================= 설정 ================= */
 function renderSettings(){
   if(MODE==='browser'){
     const u=DBI.usage, lb=window.QL.lastBackup;
     $('sHead').innerHTML='데이터베이스 <small>이 기기에 SQLite(qrqc.db 구조)로 저장 · 로그인 없음 · 인터넷이 없어도 동작</small>';
-    $('sDir').textContent=`이 기기 · SQLite · 이슈 ${lop.length}건 · 결정사항 ${decs.length}건${u&&u.used?` · 사용 ${fsize(u.used)}`:''}`;
+    $('sDir').textContent=`이 기기 · SQLite · 이슈 ${lop.length}건${u&&u.used?` · 사용 ${fsize(u.used)}`:''}`;
     $('sDbInfo').innerHTML=`마지막 백업 ${lb?esc(lb.slice(0,16)):'<b style="color:var(--bad)">없음</b>'}`;
     $('sTools').innerHTML=`<button class="btn pri" id="sBk" type="button">백업 파일 저장</button><button class="btn" id="sRs" type="button">백업 불러오기</button><input type="file" id="sRsFile" hidden>${M365_READY?'<span class="sp"></span><button class="btn" id="sM365" type="button">OneDrive에 실시간 연결…</button>':''}`;
     $('sNote').innerHTML=`<b>OneDrive에 보관하기</b>: 데이터는 데스크톱 프로그램과 같은 <b>SQLite 데이터베이스</b>로 저장됩니다. [백업 파일 저장]을 누르면 첨부(PDF·이미지·엑셀·파워포인트 원본)까지 모두 담긴 데이터베이스 파일(<b>.db</b>) 하나가 만들어집니다. 아이폰은 공유 창에서 <b>파일에 저장 › OneDrive</b>를, PC는 내려받은 파일을 OneDrive 폴더에 넣으세요. 다른 기기에서는 [백업 불러오기]로 그 파일을 고르면 같은 내용으로 이어서 씁니다 (그 기기의 기존 내용은 백업 내용으로 바뀝니다). 데스크톱 프로그램의 qrqc.db도 불러올 수 있고, 백업 .db 이름을 qrqc.db로 바꿔 데이터 폴더에 넣으면 데스크톱 프로그램에서 그대로 열립니다.<br>데이터는 이 브라우저에만 있으므로 <b>일주일에 한 번 이상 백업</b>하세요. 아이폰은 Safari 공유 버튼 › <b>홈 화면에 추가</b>로 설치해서 쓰면 데이터가 지워지지 않습니다. 사생활 보호(비공개) 탭에서는 저장되지 않습니다.`;
@@ -1040,8 +984,8 @@ async function askRestore(file){
   let o; try{ o=await window.QL.readBackup(file); }catch(e){ toast(e.message); return; }
   setupOpen=true; dlg=null;
   $('dlg').innerHTML=`<h3 id="dlgT">백업 불러오기</h3>
-    <p style="margin:0"><b>${esc(file.name)}</b><br><span class="note">${o.kind==='db'?'SQLite 데이터베이스':'이전 형식(JSON) 백업'}${o.exportedAt?' · 저장 '+esc(o.exportedAt):''}${o.exportedBy?' · '+esc(o.exportedBy):''} · 이슈 ${o.issues}건 · 결정사항 ${o.decisions}건 · 첨부 ${o.files}개</span></p>
-    <p style="margin:0;color:var(--bad)">이 기기의 지금 내용(이슈 ${lop.length}건 · 결정사항 ${decs.length}건)은 지워지고 백업 내용으로 바뀝니다.</p>
+    <p style="margin:0"><b>${esc(file.name)}</b><br><span class="note">${o.kind==='db'?'SQLite 데이터베이스':'이전 형식(JSON) 백업'}${o.exportedAt?' · 저장 '+esc(o.exportedAt):''}${o.exportedBy?' · '+esc(o.exportedBy):''} · 이슈 ${o.issues}건 · 첨부 ${o.files}개</span></p>
+    <p style="margin:0;color:var(--bad)">이 기기의 지금 내용(이슈 ${lop.length}건)은 지워지고 백업 내용으로 바뀝니다.</p>
     <div class="toolbar"><button class="btn pri" id="rsOk" type="button">불러오기</button><button class="btn" id="rsNo" type="button">취소</button><span id="sMsg" class="note"></span></div>`;
   $('ovl').hidden=false;
   $('rsNo').onclick=()=>{ if(o.db) o.db.close(); setupOpen=false; $('ovl').hidden=true; };
@@ -1057,7 +1001,7 @@ function openSetupM365(reason){
   setupOpen=true; dlg=null;
   $('dlg').innerHTML=`<h3 id="dlgT">저장 폴더 연결</h3>
     ${reason?`<p style="margin:0;color:var(--bad)">${esc(reason)}</p>`:''}
-    <p style="margin:0">이슈, 첨부, 결정사항을 저장할 OneDrive · SharePoint 폴더를 연결합니다. 팀이 함께 쓰는 폴더 하나를 정하고 모두 같은 폴더를 연결하세요. 폴더에 <b>편집 권한</b>이 있는 사람만 쓸 수 있습니다.</p>
+    <p style="margin:0">이슈와 첨부를 저장할 OneDrive · SharePoint 폴더를 연결합니다. 팀이 함께 쓰는 폴더 하나를 정하고 모두 같은 폴더를 연결하세요. 폴더에 <b>편집 권한</b>이 있는 사람만 쓸 수 있습니다.</p>
     <div class="sec">팀 폴더 연결 (팀원)</div>
     <p class="note" style="margin:0">OneDrive나 SharePoint에서 폴더를 열고 [공유] › [링크 복사]로 받은 링크를 붙여넣으세요.</p>
     <span class="toolbar" style="flex-wrap:nowrap"><input id="sLink" style="flex:1" placeholder="https://1drv.ms/f/… 또는 https://…sharepoint.com/:f:/…" inputmode="url"><button class="btn pri" id="sLinkGo" type="button">연결</button></span>
@@ -1084,7 +1028,7 @@ function openSetup(reason){
   setupOpen=true; dlg=null;
   $('dlg').innerHTML=`<h3 id="dlgT">데이터 폴더 선택</h3>
     ${reason?`<p style="margin:0;color:var(--bad)">${esc(reason)}</p>`:''}
-    <p style="margin:0">데이터베이스 파일(qrqc.db)이 저장될 폴더입니다. 이슈, 첨부자료, 결정사항이 모두 이 파일 하나에 저장됩니다. 팀이 함께 쓰려면 모두가 접근할 수 있는 <b>공유폴더</b>(예: \\\\서버\\품질\\신속대응)를 지정하고, 각자 PC에서 같은 폴더를 선택하세요. 혼자 먼저 써 볼 때는 내 문서 폴더도 괜찮습니다.</p>
+    <p style="margin:0">데이터베이스 파일(qrqc.db)이 저장될 폴더입니다. 이슈, 첨부자료, 설정이 모두 이 파일 하나에 저장됩니다. 팀이 함께 쓰려면 모두가 접근할 수 있는 <b>공유폴더</b>(예: \\\\서버\\품질\\신속대응)를 지정하고, 각자 PC에서 같은 폴더를 선택하세요. 혼자 먼저 써 볼 때는 내 문서 폴더도 괜찮습니다.</p>
     <label class="form" style="display:grid;gap:4px;font-size:12px;color:var(--muted)">폴더 경로
       <span class="toolbar" style="flex-wrap:nowrap"><input id="sPath" style="flex:1" value="${esc(CFG.dataDir||CFG.suggest||'')}"><button class="btn" id="sPick" type="button">찾아보기</button></span></label>
     <div class="toolbar"><button class="btn pri" id="sUse">이 폴더 사용</button>${CFG.dataDir&&!reason?'<button class="btn" id="sCancel">취소</button>':''}<span id="sMsg" class="note"></span></div>`;
@@ -1100,7 +1044,7 @@ function openSetup(reason){
 
 /* ================= 전체 다시 그리기 ================= */
 function refresh(){
-  renderTiles(); renderLines(); renderFocus(); renderLineFilter(); renderLop(); renderAgenda(); renderDec();
+  renderTiles(); renderLines(); renderFocus(); renderLineFilter(); renderLop(); renderAgenda();
   if(edId && !$('editor').hidden){ const r=byId(edId); if(r) $('edCrit').innerHTML=critCards(r,true); }
   if(dlg) renderDetailFiles();
 }
