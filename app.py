@@ -33,7 +33,7 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlparse
 
-VERSION = '1.5.0'
+VERSION = '1.5.1'
 APP_TITLE = '공정품질 신속대응회의'
 IS_WIN = os.name == 'nt'
 DB_NAME = 'qrqc.db'
@@ -1044,7 +1044,11 @@ def main():
 
     if webview is not None:
         try:
-            WINDOW = webview.create_window(APP_TITLE, url, width=1520, height=960, min_size=(960, 640))
+            # 화면을 꽉 채워 시작 (27인치 등 큰 모니터에서 작은 창으로 뜨지 않도록)
+            try:
+                WINDOW = webview.create_window(APP_TITLE, url, width=1520, height=960, min_size=(960, 640), maximized=True)
+            except TypeError:
+                WINDOW = webview.create_window(APP_TITLE, url, width=1520, height=960, min_size=(960, 640))
             storage = os.path.join(appdata_dir(), 'webview')
             try:
                 webview.start(private_mode=False, storage_path=storage)

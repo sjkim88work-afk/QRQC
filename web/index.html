@@ -109,7 +109,8 @@ table{border-collapse:separate;border-spacing:0;width:100%;font-size:13px}
 th,td{padding:7px 8px;border-bottom:1px solid var(--line);border-right:1px solid var(--line);text-align:left;vertical-align:middle;background:var(--panel)}
 th{background:var(--soft);font-size:12px;color:var(--ink);font-weight:600;text-align:center;line-height:1.3}
 th small{display:block;font-weight:400;color:var(--muted);font-size:10px;line-height:1.2}
-#frt{width:2050px}
+#frt{width:2250px}
+#frt td.pt{min-width:112px} #frt td.ln{min-width:100px}
 #frt th.grp{color:var(--bad);font-family:var(--f-num);font-size:11.5px;padding:3px}
 #frt th.cr{width:66px;font-size:11px;vertical-align:bottom}
 #frt td.cr{text-align:center;padding:4px 3px;cursor:pointer}
@@ -174,6 +175,18 @@ textarea{min-height:52px;resize:vertical}
 .setgrid textarea{min-height:170px}
 .path{font:13px var(--f-num);background:var(--soft);border:1px solid var(--line);border-radius:4px;padding:8px 10px;word-break:break-all}
 body.wide .wrap{max-width:none}
+/* 탭 화면(section)은 항상 바깥 폭을 꽉 채움 — margin:auto 인 그리드 항목이 내용 폭으로 줄어드는 것 방지 */
+.wrap > section.wrap{width:100%;max-width:none;margin:0}
+/* 큰 모니터 (27인치 QHD 2560×1440 · 맥 5K '2560×1440처럼 보기' 등): 글자·여백을 키우고 대시보드를 2단으로 */
+@media (min-width:1680px){
+  body{zoom:1.15}
+  .wrap{max-width:1640px}
+  #vDash{grid-template-columns:minmax(0,5fr) minmax(0,8fr);align-items:start}
+  #vDash .tiles{grid-column:1/-1}
+  #vDash .lines{grid-template-columns:repeat(auto-fill,minmax(200px,1fr))}
+}
+@media (min-width:2200px){ body{zoom:1.3} .wrap{max-width:1720px} }
+@media (min-width:2900px){ body{zoom:1.5} }
 body.meet #frt{width:1800px;font-size:15px}
 body.meet .mx{display:none}
 body.meet #frt th small, body.meet .key .hint{display:none}
@@ -576,7 +589,7 @@ function renderLop(){
   $('frtBody').innerHTML=filtered().map(r=>{ const nd=nextDate(r), done=isDone(r);
     return `<tr class="row" data-id="${esc(r.id)}">
       <td class="stk1 c">${stBox(overall(r),true)}</td><td class="stk2 num" style="font-weight:600">${esc(r.no)}${r.ex?'<span class="ex">예시</span>':''}</td>
-      <td class="c num mx">${esc(r.date)}</td><td class="c">${esc(r.model)}</td><td>${esc(r.part)}</td><td class="c num mx">${esc(r.partNo)}</td><td>${esc(r.line)}</td>
+      <td class="c num mx">${esc(r.date)}</td><td class="c">${esc(r.model)}</td><td class="pt">${esc(r.part)}</td><td class="c num mx">${esc(r.partNo)}</td><td class="ln">${esc(r.line)}</td>
       <td class="issue">${esc(r.issue)}</td><td class="c" style="${r.recur==='재발'?'color:var(--bad);font-weight:600':''}">${esc(r.recur)}</td><td class="c mx">${esc(r.dept)}</td><td class="c">${esc(r.owner)}</td>
       <td class="c num" style="${!done&&nd<TD?'color:var(--bad);font-weight:600':''}">${done?'—':md(nd)}</td>
       ${CRIT.map(c=>{ const s=cState(r,c), d=cdOf(r,c.k), nf=(d.files||[]).length;
@@ -848,7 +861,7 @@ const saveView=()=>{ try{ localStorage.setItem('qrqc-view',JSON.stringify(view))
 function applyView(){
   document.body.classList.toggle('meet',view.meet);
   $('thDone').colSpan=view.meet?1:3;
-  if(view.fit && !$('vLop').hidden){ const nat=view.meet?1800:2050; view.zoom=Math.max(.5,Math.min(2,Math.floor(($('tblWrap').clientWidth-2)/nat*100)/100)); }
+  if(view.fit && !$('vLop').hidden){ const nat=view.meet?1800:2250; view.zoom=Math.max(.5,Math.min(2,Math.floor(($('tblWrap').clientWidth-2)/nat*100)/100)); }
   $('frt').style.zoom=view.zoom; $('zv').textContent=Math.round(view.zoom*100)+'%';
   $('bMeet').setAttribute('aria-pressed',view.meet); $('bFit').setAttribute('aria-pressed',view.fit);
   saveView();
