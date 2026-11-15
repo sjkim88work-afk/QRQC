@@ -1,135 +1,348 @@
 /* QRQC · 기기 저장 모드 (로그인 · 앱 등록 없이 바로 사용)
  *
- * 이 브라우저(아이폰 홈 화면 앱 포함)의 IndexedDB 에 이슈 · 결정사항 · 설정 · 첨부 원본을 저장합니다.
- * - 인터넷이 없어도 동작합니다.
- * - OneDrive 에는 '백업 파일'로 보관합니다: [백업 저장] → (아이폰) 공유 › 파일에 저장 › OneDrive.
- *   다른 기기에서는 [백업 불러오기]로 같은 파일을 골라 이어서 씁니다.
- * - 아이폰 Safari 는 홈 화면에 추가하지 않은 사이트의 저장 데이터를 오래 안 쓰면 지울 수 있으니,
- *   홈 화면에 추가해서 쓰고 백업을 정기적으로 저장하세요.
+ * 데이터는 데스크톱 프로그램과 '같은 구조'의 SQLite 데이터베이스(qrqc.db)로 이 기기에 저장합니다.
+ *   - SQLite 엔진: sql.js (web/lib/sql-wasm.js · sql-wasm.wasm, MIT)
+ *   - 테이블: issues · issue_criteria · attachments · decisions · settings · meta, 조회용 뷰 v_issues
+ *   - 첨부 원본(PDF · 이미지 · 엑셀 · 파워포인트)은 화면이 빠르도록 브라우저 저장소에 따로 두고,
+ *     [백업 파일 저장] 때 attachments.data(BLOB)에 넣어 qrqc.db 하나로 내보냅니다.
+ * - 백업 파일(QRQC_백업_날짜.db)은 데스크톱 프로그램의 qrqc.db와 같은 형식입니다.
+ *   이름을 qrqc.db 로 바꿔 데이터 폴더에 넣으면 데스크톱 프로그램에서 그대로 열리고,
+ *   DB Browser for SQLite · 엑셀(ODBC) · Power BI 에서도 v_issues 뷰로 바로 볼 수 있습니다.
+ * - 반대로 데스크톱의 qrqc.db 를 [백업 불러오기]로 고르면 아이폰에서도 같은 내용을 봅니다.
+ * - 인터넷이 없어도 동작합니다. 아이폰은 홈 화면에 추가해서 쓰고, 백업을 정기적으로 저장하세요.
  *
- * 화면(index.html)은 데스크톱과 같은 '/api/...' 요청을 보내고, 이 파일이 그 요청을 IndexedDB 작업으로 바꿉니다.
+ * 화면(index.html)은 데스크톱과 같은 '/api/...' 요청을 보내고, 이 파일이 그 요청을 SQL 로 처리합니다.
  */
 (function () {
   'use strict';
-  const DB_NAME = 'qrqc', DB_VER = 1;
-  const STORES = ['issues', 'decisions', 'settings', 'files'];
+  const IDB_NAME = 'qrqc', IDB_VER = 2;
+  const SCHEMA_VERSION = 1;
+  const CRITS = ['cont', 'rca', 'act', 'ep', 'lpa', 'ver', 'pfmea', 'sw', 'll'];
+  const STATES = ['R', 'Y', 'G', 'NA'];
   const DEFAULT_SETTINGS = { lines: ['윈도우레귤레이터 1라인', '도어래치 조립 2라인', 'PSD 모터 조립', '프레스 3공정', '사출 성형'], noFormat: 'PHA-{YY}-{MM}-{NN}' };
-  const ALLOWED = { pdf: 'pdf', png: 'img', jpg: 'img', jpeg: 'img', gif: 'img', bmp: 'img', webp: 'img', heic: 'img', xlsx: 'sheet', xlsm: 'sheet', xls: 'sheet', csv: 'sheet' };
-  const MIME = { pdf: 'application/pdf', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', bmp: 'image/bmp', webp: 'image/webp', heic: 'image/heic',
-    xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', xlsm: 'application/vnd.ms-excel.sheet.macroEnabled.12', xls: 'application/vnd.ms-excel', csv: 'text/csv' };
+  // 허용 첨부: PDF · 이미지 · 엑셀 · 파워포인트  (데스크톱 app.py 의 ALLOWED 와 같게)
+  const ALLOWED = {
+    pdf: ['pdf', 'application/pdf'],
+    png: ['img', 'image/png'], jpg: ['img', 'image/jpeg'], jpeg: ['img', 'image/jpeg'], gif: ['img', 'image/gif'],
+    bmp: ['img', 'image/bmp'], webp: ['img', 'image/webp'], heic: ['img', 'image/heic'],
+    xlsx: ['sheet', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],
+    xlsm: ['sheet', 'application/vnd.ms-excel.sheet.macroEnabled.12'], xls: ['sheet', 'application/vnd.ms-excel'], csv: ['sheet', 'text/csv'],
+    pptx: ['slide', 'application/vnd.openxmlformats-officedocument.presentationml.presentation'],
+    pptm: ['slide', 'application/vnd.ms-powerpoint.presentation.macroEnabled.12'], ppt: ['slide', 'application/vnd.ms-powerpoint'],
+  };
   const MAX_ATTACH = 50 * 1024 * 1024;
-  const LS_USER = 'qrqc-local-user', LS_BACKUP = 'qrqc-local-last-backup', LS_REV = 'qrqc-local-rev';
+  const ISSUE_FIELDS = [['no', 'no'], ['date', 'found_date'], ['model', 'model'], ['part', 'part'], ['partNo', 'part_no'],
+    ['line', 'line'], ['issue', 'issue'], ['recur', 'recur'], ['dept', 'dept'], ['owner', 'owner'],
+    ['action', 'action'], ['fc', 'fc_date'], ['ac', 'ac_date'], ['cc', 'cc_date']];
+  const DEC_FIELDS = [['date', 'meeting_date'], ['at', 'seq'], ['text', 'text'], ['issueId', 'issue_id'],
+    ['issueNo', 'issue_no'], ['owner', 'owner'], ['due', 'due_date'], ['doneAt', 'done_date']];
+  // 데스크톱 app.py 의 SCHEMA 와 똑같이 유지합니다 (백업 .db 를 데스크톱에서 그대로 열 수 있도록)
+  const SCHEMA = `
+CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT);
+CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS issues(
+  id TEXT PRIMARY KEY,
+  no TEXT NOT NULL,
+  found_date TEXT,
+  model TEXT, part TEXT, part_no TEXT, line TEXT,
+  issue TEXT,
+  recur TEXT, dept TEXT, owner TEXT,
+  action TEXT,
+  fc_date TEXT, ac_date TEXT, cc_date TEXT,
+  is_example INTEGER NOT NULL DEFAULT 0,
+  created_by TEXT, created_at TEXT, updated_by TEXT, updated_at TEXT,
+  deleted_by TEXT, deleted_at TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_issues_no ON issues(no) WHERE deleted_at IS NULL;
+CREATE TABLE IF NOT EXISTS issue_criteria(
+  issue_id TEXT NOT NULL REFERENCES issues(id),
+  crit TEXT NOT NULL,
+  state TEXT NOT NULL DEFAULT 'R',
+  done_date TEXT, checker TEXT, note TEXT,
+  updated_by TEXT, updated_at TEXT,
+  PRIMARY KEY(issue_id, crit)
+);
+CREATE TABLE IF NOT EXISTS attachments(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  issue_id TEXT NOT NULL REFERENCES issues(id),
+  crit TEXT NOT NULL,
+  name TEXT NOT NULL, ext TEXT, kind TEXT, size INTEGER,
+  data BLOB NOT NULL,
+  created_by TEXT, created_at TEXT, deleted_by TEXT, deleted_at TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_att_issue ON attachments(issue_id, crit);
+CREATE TABLE IF NOT EXISTS decisions(
+  id TEXT PRIMARY KEY,
+  meeting_date TEXT, seq INTEGER, text TEXT,
+  issue_id TEXT, issue_no TEXT, owner TEXT, due_date TEXT,
+  done INTEGER NOT NULL DEFAULT 0, done_date TEXT,
+  created_by TEXT, created_at TEXT, updated_by TEXT, updated_at TEXT,
+  deleted_by TEXT, deleted_at TEXT
+);
+CREATE VIEW IF NOT EXISTS v_issues AS
+SELECT i.no AS 순번, i.found_date AS 발견일자, i.model AS 차종, i.part AS 품명, i.part_no AS 품번, i.line AS 발견장소,
+       i.issue AS 문제내용, i.recur AS 재발유무, i.dept AS 주관부서, i.owner AS 담당,
+       MAX(CASE WHEN c.crit='cont'  THEN c.state END) AS "24HR_봉쇄조치",
+       MAX(CASE WHEN c.crit='rca'   THEN c.state END) AS "2D_원인분석",
+       MAX(CASE WHEN c.crit='act'   THEN c.state END) AS "7D_개선조치실행",
+       MAX(CASE WHEN c.crit='ep'    THEN c.state END) AS "7D_실수방지검출",
+       MAX(CASE WHEN c.crit='lpa'   THEN c.state END) AS "7D_계층적공정감사",
+       MAX(CASE WHEN c.crit='ver'   THEN c.state END) AS "9D_개선조치검증",
+       MAX(CASE WHEN c.crit='pfmea' THEN c.state END) AS "10D_PFMEA_CP",
+       MAX(CASE WHEN c.crit='sw'    THEN c.state END) AS "10D_표준작업훈련",
+       MAX(CASE WHEN c.crit='ll'    THEN c.state END) AS "14D_교훈반영",
+       i.action AS 조치사항, i.fc_date AS 예상완료일자, i.ac_date AS 실제완료일자, i.cc_date AS 고객완료일자,
+       i.updated_by AS 최종수정자, i.updated_at AS 최종수정일시
+FROM issues i LEFT JOIN issue_criteria c ON c.issue_id = i.id
+WHERE i.deleted_at IS NULL
+GROUP BY i.id;`;
+  const LS_USER = 'qrqc-local-user', LS_BACKUP = 'qrqc-local-last-backup';
 
-  let db = null;
+  let SQL = null, db = null, idb = null, memRev = -1, queue = Promise.resolve();
   const err = (status, message) => Object.assign(new Error(message), { status });
-  const clone = o => JSON.parse(JSON.stringify(o));
   const nowStr = () => { const d = new Date(), p = n => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`; };
-  const deepMerge = (a, b) => { for (const k in b) { if (b[k] && typeof b[k] === 'object' && !Array.isArray(b[k]) && a[k] && typeof a[k] === 'object' && !Array.isArray(a[k])) deepMerge(a[k], b[k]); else a[k] = clone(b[k]); } return a; };
+  const deepMerge = (a, b) => { for (const k in b) { if (b[k] && typeof b[k] === 'object' && !Array.isArray(b[k]) && a[k] && typeof a[k] === 'object' && !Array.isArray(a[k])) deepMerge(a[k], b[k]); else a[k] = b[k] && typeof b[k] === 'object' ? JSON.parse(JSON.stringify(b[k])) : b[k]; } return a; };
   const ls = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (e) { } } };
   const user = () => ls.get(LS_USER) || '';
-  const bump = () => ls.set(LS_REV, String((+ls.get(LS_REV) || 0) + 1));
+  const ID_RE = /^[A-Za-z0-9_.\-]{1,80}$/;
 
-  /* ---------------- IndexedDB */
-  function open() {
+  /* ---------------- 브라우저 저장소 (IndexedDB): kv = SQLite 파일 · rev, blobs = 첨부 원본 */
+  function idbOpen() {
     return new Promise((ok, no) => {
       if (!window.indexedDB) return no(err(500, '이 브라우저는 기기 저장을 지원하지 않습니다. Safari·Chrome·Edge 최신 버전을 쓰세요'));
-      const r = indexedDB.open(DB_NAME, DB_VER);
-      r.onupgradeneeded = () => { for (const s of STORES) if (!r.result.objectStoreNames.contains(s)) r.result.createObjectStore(s, { keyPath: 'id' }); };
+      const r = indexedDB.open(IDB_NAME, IDB_VER);
+      r.onupgradeneeded = () => {
+        const d = r.result;
+        if (!d.objectStoreNames.contains('kv')) d.createObjectStore('kv');
+        if (!d.objectStoreNames.contains('blobs')) d.createObjectStore('blobs');
+      };
       r.onsuccess = () => ok(r.result);
       r.onerror = () => no(err(500, '기기 저장소를 열 수 없습니다. 사생활 보호(비공개) 모드에서는 저장되지 않습니다'));
+      r.onblocked = () => no(err(500, 'QRQC가 다른 탭에서 열려 있습니다. 다른 탭을 닫고 새로고침하세요'));
     });
   }
-  function tx(store, mode, fn) {
+  function idbTx(stores, mode, fn) {
     return new Promise((ok, no) => {
-      const t = db.transaction(store, mode), s = t.objectStore(store);
+      const t = idb.transaction(stores, mode);
       let out;
-      Promise.resolve(fn(s)).then(v => { out = v; });
+      Promise.resolve(fn(t)).then(v => { out = v; }, e => { try { t.abort(); } catch (_) { } no(e); });
       t.oncomplete = () => ok(out);
-      t.onerror = () => no(err(500, t.error && t.error.name === 'QuotaExceededError' ? '기기 저장 공간이 부족합니다. 오래된 첨부를 지우거나 백업 후 정리하세요' : '저장하지 못했습니다'));
-      t.onabort = t.onerror;
+      t.onerror = t.onabort = () => no(err(500, t.error && t.error.name === 'QuotaExceededError' ? '기기 저장 공간이 부족합니다. 백업 후 오래된 첨부를 정리하세요' : '기기에 저장하지 못했습니다'));
     });
   }
   const req = r => new Promise((ok, no) => { r.onsuccess = () => ok(r.result); r.onerror = () => no(r.error); });
-  const getAll = store => tx(store, 'readonly', s => req(s.getAll()));
-  const getOne = (store, id) => tx(store, 'readonly', s => req(s.get(id)));
-  const put = (store, obj) => tx(store, 'readwrite', s => { s.put(obj); });
-  const del = (store, id) => tx(store, 'readwrite', s => { s.delete(id); });
+  const kvGet = k => idbTx(['kv'], 'readonly', t => req(t.objectStore('kv').get(k)));
+  const blobGet = id => idbTx(['blobs'], 'readonly', t => req(t.objectStore('blobs').get(String(id))));
+  const blobPut = (id, b) => idbTx(['blobs'], 'readwrite', t => { t.objectStore('blobs').put(b, String(id)); });
+
+  /* ---------------- SQLite (sql.js) */
+  function loadScript(src) {
+    return new Promise((ok, no) => { const s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = () => no(err(500, 'SQLite 엔진을 불러오지 못했습니다. 인터넷 연결 후 새로고침하세요')); document.head.appendChild(s); });
+  }
+  async function engine() {
+    if (SQL) return SQL;
+    if (!window.initSqlJs) await loadScript('lib/sql-wasm.js');
+    SQL = await window.initSqlJs({ locateFile: f => 'lib/' + f });
+    return SQL;
+  }
+  function rows(sql, params, d) {
+    const st = (d || db).prepare(sql);
+    try { if (params) st.bind(params); const out = []; while (st.step()) out.push(st.getAsObject()); return out; }
+    finally { st.free(); }
+  }
+  const one = (sql, params, d) => rows(sql, params, d)[0];
+  const run = (sql, params, d) => (d || db).run(sql, params || []);
+  function initSchema(d) {
+    d.exec(SCHEMA);
+    run("INSERT OR IGNORE INTO meta(key, value) VALUES('rev', '0')", [], d);
+    run("INSERT OR IGNORE INTO meta(key, value) VALUES('schema_version', ?)", [String(SCHEMA_VERSION)], d);
+    for (const k in DEFAULT_SETTINGS) run('INSERT OR IGNORE INTO settings(key, value) VALUES(?, ?)', [k, JSON.stringify(DEFAULT_SETTINGS[k])], d);
+  }
+  const dbRev = d => +((one("SELECT value FROM meta WHERE key = 'rev'", null, d) || {}).value || 0);
+
+  // 다른 탭이 먼저 저장했으면 그 내용을 다시 읽음
+  async function syncFromStore() {
+    const r = await kvGet('rev');
+    if (r != null && r !== memRev) {
+      const bytes = await kvGet('db');
+      if (bytes) { if (db) db.close(); db = new SQL.Database(new Uint8Array(bytes)); initSchema(db); memRev = r; }
+    }
+  }
+  // 쓰기: 순서대로 하나씩, SQL 트랜잭션 → rev 증가 → 기기에 저장
+  function write(fn) {
+    const job = queue.then(async () => {
+      await syncFromStore();
+      run('BEGIN');
+      let out;
+      try {
+        out = await fn();
+        run("UPDATE meta SET value = CAST(value AS INTEGER) + 1 WHERE key = 'rev'");
+        run('COMMIT');
+      } catch (e) { try { run('ROLLBACK'); } catch (_) { } throw e; }
+      await persist();
+      return out;
+    });
+    queue = job.catch(() => { });
+    return job;
+  }
+  async function persist(extraBlobs) {
+    const bytes = db.export(), r = dbRev();
+    await idbTx(['kv', 'blobs'], 'readwrite', t => {
+      t.objectStore('kv').put(bytes, 'db'); t.objectStore('kv').put(r, 'rev');
+      for (const [id, b] of (extraBlobs || [])) t.objectStore('blobs').put(b, String(id));
+    });
+    memRev = r;
+  }
 
   async function init() {
-    db = await open();
+    idb = await idbOpen();
+    await engine();
+    const bytes = await kvGet('db');
+    if (bytes) { db = new SQL.Database(new Uint8Array(bytes)); initSchema(db); memRev = (await kvGet('rev')) ?? dbRev(); }
+    else {
+      db = new SQL.Database(); initSchema(db);
+      await migrateV1();
+      await persist();
+    }
     try { if (navigator.storage && navigator.storage.persist) await navigator.storage.persist(); } catch (e) { }
     return { state: 'ready' };
   }
+  // v1.5.0 (JSON 문서 방식) 으로 저장된 내용이 있으면 한 번 옮김. 원래 저장소는 지우지 않음
+  async function migrateV1() {
+    if (!['issues', 'decisions', 'settings', 'files'].every(s => idb.objectStoreNames.contains(s))) return;
+    const get = s => idbTx([s], 'readonly', t => req(t.objectStore(s).getAll()));
+    const [issues, decs, sets, files] = await Promise.all(['issues', 'decisions', 'settings', 'files'].map(get));
+    if (!issues.length && !decs.length && !sets.length) return;
+    const blobs = [];
+    run('BEGIN');
+    try {
+      const s = (sets.find(x => x.id === 'main') || {}).value;
+      if (s) for (const k of ['lines', 'noFormat']) if (s[k]) run('INSERT INTO settings(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', [k, JSON.stringify(s[k])]);
+      for (const o of issues) { try { saveIssue(o.id, o, o.updatedBy, o.updatedAt); } catch (e) { saveIssue(o.id, Object.assign({}, o, { no: o.no + '-' + o.id.slice(-4) }), o.updatedBy, o.updatedAt); } }
+      for (const o of decs) saveDecision(o.id, o, o.updatedBy, o.updatedAt);
+      for (const f of files) {
+        const r = issues.find(x => x.id === f.issueId); if (!r) continue;
+        const meta = ((((r.cd || {})[f.crit] || {}).files) || []).find(m => m.id === f.id) || {};
+        run('INSERT INTO attachments(issue_id, crit, name, ext, kind, size, data, created_by, created_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          [f.issueId, f.crit, f.name, f.ext, (ALLOWED[f.ext] || [f.kind])[0], f.size, new Uint8Array(0), meta.by || '', (meta.at || '') + (meta.at ? ' 00:00:00' : '')]);
+        blobs.push([one('SELECT last_insert_rowid() AS id').id, f.blob]);
+      }
+      run("INSERT OR REPLACE INTO meta(key, value) VALUES('json_migrated', ?)", [nowStr() + ' 이 기기 v1.5.0 저장분 ' + issues.length + '건']);
+      run('COMMIT');
+    } catch (e) { run('ROLLBACK'); throw e; }
+    await persist(blobs);
+  }
 
-  /* ---------------- 읽기 · 쓰기 */
-  async function settings() {
-    const s = await getOne('settings', 'main');
-    return Object.assign(clone(DEFAULT_SETTINGS), s ? s.value : {});
+  /* ---------------- 읽기 · 쓰기 (데스크톱 app.py 와 같은 규칙) */
+  function settings() {
+    const s = JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
+    for (const r of rows('SELECT key, value FROM settings')) { try { s[r.key] = JSON.parse(r.value); } catch (e) { } }
+    return s;
   }
-  async function saveDoc(col, id, body, mode) {
-    const cur = await getOne(col, id);
-    let obj;
-    if (mode === 'patch') {
-      if (!cur) throw err(404, '삭제된 항목입니다');
-      obj = deepMerge(clone(cur), body);
-    } else obj = clone(body);
-    obj.id = id;
-    if (col === 'issues') {
-      if (!obj.no) throw err(400, '순번을 입력하세요');
-      const dup = (await getAll('issues')).find(r => r.no === obj.no && r.id !== id);
-      if (dup) throw err(409, `순번 ${obj.no} 은(는) 이미 사용 중입니다`);
+  const attMeta = r => ({ id: r.id, name: r.name, ext: r.ext, kind: r.kind, size: r.size, at: (r.created_at || '').slice(0, 10), by: r.created_by || '' });
+  function loadIssues(onlyId) {
+    const out = {};
+    const w = onlyId ? ['id = ? AND deleted_at IS NULL', [onlyId]] : ['deleted_at IS NULL', null];
+    for (const r of rows('SELECT * FROM issues WHERE ' + w[0], w[1])) {
+      const o = { id: r.id };
+      for (const [k, c] of ISSUE_FIELDS) o[k] = r[c] || '';
+      Object.assign(o, { ex: !!r.is_example, crit: {}, cd: {}, createdBy: r.created_by, createdAt: r.created_at, updatedBy: r.updated_by, updatedAt: r.updated_at });
+      out[r.id] = o;
     }
-    obj.updatedBy = user(); obj.updatedAt = nowStr();
-    if (!cur) { obj.createdBy = obj.createdBy || user(); obj.createdAt = obj.createdAt || nowStr(); }
-    else { obj.createdBy = cur.createdBy || obj.createdBy; obj.createdAt = cur.createdAt || obj.createdAt; }
-    await put(col, obj); bump();
-    return clone(obj);
+    if (!Object.keys(out).length) return out;
+    for (const r of rows('SELECT * FROM issue_criteria' + (onlyId ? ' WHERE issue_id = ?' : ''), onlyId ? [onlyId] : null)) {
+      const o = out[r.issue_id]; if (!o) continue;
+      o.crit[r.crit] = r.state;
+      o.cd[r.crit] = { note: r.note || '', done: r.done_date || '', checker: r.checker || '', files: [] };
+    }
+    for (const r of rows('SELECT id, issue_id, crit, name, ext, kind, size, created_by, created_at FROM attachments WHERE deleted_at IS NULL' + (onlyId ? ' AND issue_id = ?' : '') + ' ORDER BY id', onlyId ? [onlyId] : null)) {
+      const o = out[r.issue_id]; if (!o) continue;
+      (o.cd[r.crit] = o.cd[r.crit] || { note: '', done: '', checker: '', files: [] }).files.push(attMeta(r));
+    }
+    return out;
   }
-  async function deleteDoc(col, id) {
-    await del(col, id);
-    if (col === 'issues') for (const f of await getAll('files')) if (f.issueId === id) await del('files', f.id);
-    bump();
+  const loadIssue = id => loadIssues(id)[id] || null;
+  function saveIssue(id, o, by, at) {
+    by = by || user(); at = at || nowStr();
+    const vals = ISSUE_FIELDS.map(([k]) => String(o[k] == null ? '' : o[k]).trim());
+    if (!vals[0]) throw err(400, '순번을 입력하세요');
+    const cols = ISSUE_FIELDS.map(f => f[1]);
+    try {
+      run(`INSERT INTO issues(id, ${cols.join(', ')}, is_example, created_by, created_at, updated_by, updated_at) VALUES(?, ${cols.map(() => '?').join(', ')}, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET ${cols.map(c => `${c} = excluded.${c}`).join(', ')}, is_example = excluded.is_example, updated_by = excluded.updated_by,
+        updated_at = excluded.updated_at, deleted_by = NULL, deleted_at = NULL`,
+        [id, ...vals, o.ex ? 1 : 0, o.createdBy || by, o.createdAt || at, by, at]);
+    } catch (e) {
+      if (/UNIQUE/.test(String(e.message))) throw err(409, `순번 ${vals[0]} 은(는) 이미 사용 중입니다`);
+      throw e;
+    }
+    const crit = o.crit || {}, cd = o.cd || {};
+    for (const k of CRITS) {
+      const st = STATES.includes(crit[k]) ? crit[k] : 'R', d = cd[k] || {};
+      run(`INSERT INTO issue_criteria(issue_id, crit, state, done_date, checker, note, updated_by, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(issue_id, crit) DO UPDATE SET state = excluded.state, done_date = excluded.done_date, checker = excluded.checker,
+        note = excluded.note, updated_by = excluded.updated_by, updated_at = excluded.updated_at`,
+        [id, k, st, d.done || '', d.checker || '', d.note || '', by, at]);
+    }
+  }
+  function decObj(r) {
+    const o = { id: r.id };
+    for (const [k, c] of DEC_FIELDS) o[k] = c === 'seq' ? r[c] : (r[c] || '');
+    o.done = !!r.done; o.updatedBy = r.updated_by; o.updatedAt = r.updated_at;
+    return o;
+  }
+  const loadDecisions = onlyId => rows('SELECT * FROM decisions WHERE deleted_at IS NULL' + (onlyId ? ' AND id = ?' : ''), onlyId ? [onlyId] : null).map(decObj);
+  function saveDecision(id, o, by, at) {
+    by = by || user(); at = at || nowStr();
+    const cols = DEC_FIELDS.map(f => f[1]);
+    const vals = DEC_FIELDS.map(([k, c]) => c === 'seq' ? (parseInt(o[k], 10) || 0) : String(o[k] == null ? '' : o[k]));
+    run(`INSERT INTO decisions(id, ${cols.join(', ')}, done, created_by, created_at, updated_by, updated_at) VALUES(?, ${cols.map(() => '?').join(', ')}, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET ${cols.map(c => `${c} = excluded.${c}`).join(', ')}, done = excluded.done, updated_by = excluded.updated_by, updated_at = excluded.updated_at`,
+      [id, ...vals, o.done ? 1 : 0, by, at, by, at]);
   }
 
   /* ---------------- 첨부 */
-  async function upload(issueId, crit, file) {
-    const name = String(file.name || 'file').split(/[\\/]/).pop().slice(0, 120), ext = (name.split('.').pop() || '').toLowerCase();
-    if (!ALLOWED[ext]) throw err(415, 'PDF, 이미지(JPG·PNG·HEIC 등), 엑셀(XLSX·XLS·CSV) 파일만 첨부할 수 있습니다');
-    if (file.size > MAX_ATTACH) throw err(413, '파일당 50MB까지 첨부할 수 있습니다');
-    const id = 'f' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-    const blob = file.slice(0, file.size, file.type || MIME[ext] || 'application/octet-stream');
-    await put('files', { id, issueId, crit, name, ext, kind: ALLOWED[ext], size: file.size, blob });
-    const f = { id, name, ext, kind: ALLOWED[ext], size: file.size, at: nowStr().slice(0, 10), by: user() };
-    const cur = await getOne('issues', issueId);
-    if (!cur) throw err(404, '이슈를 찾을 수 없습니다');
-    cur.cd = cur.cd || {}; cur.cd[crit] = cur.cd[crit] || {};
-    const files = (cur.cd[crit].files || []).concat([f]);
-    const issue = await saveDoc('issues', issueId, { cd: { [crit]: { files } } }, 'patch');
-    return { file: f, issue };
+  function checkFile(name, size) {
+    const ext = (String(name).split('.').pop() || '').toLowerCase();
+    if (!ALLOWED[ext]) throw err(415, 'PDF, 이미지(JPG·PNG·HEIC 등), 엑셀(XLSX·XLS·CSV), 파워포인트(PPTX·PPT) 파일만 첨부할 수 있습니다');
+    if (size > MAX_ATTACH) throw err(413, '파일당 50MB까지 첨부할 수 있습니다');
+    if (!size) throw err(400, '빈 파일입니다');
+    return ext;
   }
-  async function removeAttachment(attId) {
-    const rec = await getOne('files', attId);
-    const issueId = rec ? rec.issueId : null;
-    await del('files', attId);
-    const issues = issueId ? [await getOne('issues', issueId)] : await getAll('issues');
-    for (const r of issues) {
-      if (!r) continue;
-      for (const k in (r.cd || {})) {
-        const before = (r.cd[k].files || []).length;
-        const files = (r.cd[k].files || []).filter(f => f.id !== attId);
-        if (files.length !== before) return saveDoc('issues', r.id, { cd: { [k]: { files } } }, 'patch');
-      }
-    }
-    throw err(404, '첨부를 찾을 수 없습니다');
+  async function upload(issueId, crit, file) {
+    if (!ID_RE.test(issueId) || !CRITS.includes(crit)) throw err(400, '잘못된 요청입니다');
+    const name = String(file.name || 'file').split(/[\\/]/).pop().slice(0, 120), ext = checkFile(name, file.size);
+    const blob = file.slice(0, file.size, file.type || ALLOWED[ext][1]);
+    let aid;
+    const issue = await write(async () => {
+      if (!loadIssue(issueId)) throw err(404, '이슈를 찾을 수 없습니다');
+      run('INSERT INTO attachments(issue_id, crit, name, ext, kind, size, data, created_by, created_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [issueId, crit, name, ext, ALLOWED[ext][0], file.size, new Uint8Array(0), user(), nowStr()]);
+      aid = one('SELECT last_insert_rowid() AS id').id;
+      run('UPDATE issues SET updated_by = ?, updated_at = ? WHERE id = ?', [user(), nowStr(), issueId]);
+      await blobPut(aid, blob);   // 원본을 먼저 저장하고 나서 DB 를 확정
+      return loadIssue(issueId);
+    });
+    return { file: issue.cd[crit].files.find(f => f.id === aid), issue };
+  }
+  function attRow(id) {
+    const r = one('SELECT id, issue_id, name, ext, kind, size, data FROM attachments WHERE id = ? AND deleted_at IS NULL', [+id]);
+    if (!r) throw err(404, '첨부를 찾을 수 없습니다');
+    return r;
+  }
+  async function attBlob(id) {
+    const r = attRow(id);
+    const b = await blobGet(r.id);
+    if (b) return { r, blob: b };
+    if (r.data && r.data.length) return { r, blob: new Blob([r.data], { type: (ALLOWED[r.ext] || [, ''])[1] }) };
+    throw err(404, '첨부 원본이 이 기기에 없습니다');
   }
   const urls = {};
-  async function attUrl(attId) {
-    if (urls[attId]) return urls[attId];
-    const rec = await getOne('files', attId);
-    if (!rec) throw err(404, '첨부를 찾을 수 없습니다');
-    return (urls[attId] = URL.createObjectURL(rec.blob));
+  async function attUrl(id) {
+    if (urls[id]) return urls[id];
+    const { blob } = await attBlob(id);
+    return (urls[id] = URL.createObjectURL(blob));
   }
-  async function fileRec(attId) { const r = await getOne('files', attId); if (!r) throw err(404, '첨부를 찾을 수 없습니다'); return r; }
 
   /* ---------------- 파일로 내보내기 (아이폰: 공유 시트 → 파일에 저장 → OneDrive) */
   async function deliver(blob, name, title) {
@@ -143,35 +356,82 @@
     document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000);
     return 'downloaded';
   }
-  const b64 = blob => new Promise((ok, no) => { const r = new FileReader(); r.onload = () => ok(String(r.result).split(',')[1] || ''); r.onerror = no; r.readAsDataURL(blob); });
-  const unb64 = (s, type) => { const bin = atob(s); const u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return new Blob([u], { type }); };
 
+  // 백업: 지금 DB 복사본에 첨부 원본을 BLOB 으로 넣어 qrqc.db 형식 파일 하나로
   async function backup() {
-    const [issues, decisions, files] = await Promise.all([getAll('issues'), getAll('decisions'), getAll('files')]);
-    const out = { app: 'QRQC', kind: 'backup', format: 1, version: window.QRQC_VERSION || '', exportedAt: nowStr(), exportedBy: user(),
-      settings: await settings(), issues, decisions, files: [] };
-    for (const f of files) out.files.push({ id: f.id, issueId: f.issueId, crit: f.crit, name: f.name, ext: f.ext, kind: f.kind, size: f.size, data: await b64(f.blob) });
-    const d = new Date(), p = n => String(n).padStart(2, '0');
-    const name = `QRQC_백업_${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}.json`;
-    const how = await deliver(new Blob([JSON.stringify(out)], { type: 'application/json' }), name, 'QRQC 백업');
-    if (how !== 'cancelled') ls.set(LS_BACKUP, nowStr());
-    return { name, how, issues: issues.length, files: files.length };
+    await queue; await syncFromStore();
+    const copy = new SQL.Database(db.export());
+    try {
+      for (const r of rows('SELECT id FROM attachments', null, copy)) {
+        const b = await blobGet(r.id);
+        if (b) run('UPDATE attachments SET data = ? WHERE id = ?', [new Uint8Array(await b.arrayBuffer()), r.id], copy);
+      }
+      run("INSERT OR REPLACE INTO meta(key, value) VALUES('exported_at', ?)", [nowStr()], copy);
+      run("INSERT OR REPLACE INTO meta(key, value) VALUES('exported_by', ?)", [user()], copy);
+      const bytes = copy.export();
+      const n = { issues: one('SELECT COUNT(*) AS n FROM issues WHERE deleted_at IS NULL', null, copy).n, files: one('SELECT COUNT(*) AS n FROM attachments WHERE deleted_at IS NULL', null, copy).n };
+      const d = new Date(), p = x => String(x).padStart(2, '0');
+      const name = `QRQC_백업_${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}.db`;
+      const how = await deliver(new Blob([bytes], { type: 'application/vnd.sqlite3' }), name, 'QRQC 백업');
+      if (how !== 'cancelled') ls.set(LS_BACKUP, nowStr());
+      return Object.assign({ name, how, size: bytes.length }, n);
+    } finally { copy.close(); }
   }
+
+  // 불러오기 파일 확인: QRQC 백업(.db) · 데스크톱 qrqc.db · v1.5.0 백업(.json)
   async function readBackup(file) {
+    const buf = new Uint8Array(await file.arrayBuffer());
+    const head = new TextDecoder().decode(buf.slice(0, 15));
+    if (head === 'SQLite format 3') {
+      await engine();
+      let d;
+      try { d = new SQL.Database(buf); rows('SELECT 1 FROM issues LIMIT 1', null, d); }
+      catch (e) { if (d) d.close(); throw err(400, 'QRQC 데이터베이스가 아닙니다 (issues 테이블이 없음)'); }
+      const meta = k => (one('SELECT value FROM meta WHERE key = ?', [k], d) || {}).value || '';
+      const info = { kind: 'db', db: d, exportedAt: meta('exported_at'), exportedBy: meta('exported_by'),
+        issues: one('SELECT COUNT(*) AS n FROM issues WHERE deleted_at IS NULL', null, d).n,
+        decisions: one('SELECT COUNT(*) AS n FROM decisions WHERE deleted_at IS NULL', null, d).n,
+        files: one('SELECT COUNT(*) AS n FROM attachments WHERE deleted_at IS NULL', null, d).n };
+      return info;
+    }
     let o;
-    try { o = JSON.parse(await file.text()); } catch (e) { throw err(400, '백업 파일을 읽을 수 없습니다. QRQC에서 저장한 .json 파일인지 확인하세요'); }
+    try { o = JSON.parse(new TextDecoder().decode(buf)); } catch (e) { throw err(400, '백업 파일을 읽을 수 없습니다. QRQC에서 저장한 .db(또는 이전 .json) 파일인지 확인하세요'); }
     if (!o || o.app !== 'QRQC' || !Array.isArray(o.issues)) throw err(400, 'QRQC 백업 파일이 아닙니다');
-    return o;
+    return { kind: 'json', json: o, exportedAt: o.exportedAt || '', exportedBy: o.exportedBy || '', issues: o.issues.length, decisions: (o.decisions || []).length, files: (o.files || []).length };
   }
-  async function restore(o) {
-    for (const s of ['issues', 'decisions', 'files']) await tx(s, 'readwrite', st => { st.clear(); });
-    for (const r of o.issues) await put('issues', r);
-    for (const r of (o.decisions || [])) await put('decisions', r);
-    for (const f of (o.files || [])) await put('files', { id: f.id, issueId: f.issueId, crit: f.crit, name: f.name, ext: f.ext, kind: f.kind, size: f.size, blob: unb64(f.data, MIME[f.ext] || 'application/octet-stream') });
-    if (o.settings) await put('settings', { id: 'main', value: { lines: o.settings.lines, noFormat: o.settings.noFormat } });
+
+  async function restore(info) {
+    let fresh, blobs = [];
+    if (info.kind === 'db') {
+      fresh = info.db; initSchema(fresh);
+      // 첨부 원본은 브라우저 저장소로 옮기고 DB 안에서는 비워 둠 (화면이 빠르도록)
+      for (const r of rows('SELECT id, ext, data FROM attachments WHERE length(data) > 0', null, fresh))
+        blobs.push([r.id, new Blob([r.data], { type: (ALLOWED[r.ext] || [, 'application/octet-stream'])[1] })]);
+      run("UPDATE attachments SET data = X''", [], fresh);
+    } else {
+      fresh = new SQL.Database(); initSchema(fresh);
+      const o = info.json, prev = db; db = fresh;
+      try {
+        if (o.settings) for (const k of ['lines', 'noFormat']) if (o.settings[k]) run('INSERT INTO settings(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', [k, JSON.stringify(o.settings[k])]);
+        for (const r of o.issues) saveIssue(r.id, r, r.updatedBy, r.updatedAt);
+        for (const r of (o.decisions || [])) saveDecision(r.id, r, r.updatedBy, r.updatedAt);
+        for (const f of (o.files || [])) {
+          if (!o.issues.find(x => x.id === f.issueId)) continue;
+          run('INSERT INTO attachments(issue_id, crit, name, ext, kind, size, data, created_by, created_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            [f.issueId, f.crit, f.name, f.ext, (ALLOWED[f.ext] || [f.kind])[0], f.size, new Uint8Array(0), '', '']);
+          const bin = atob(f.data), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+          blobs.push([one('SELECT last_insert_rowid() AS id').id, new Blob([u], { type: (ALLOWED[f.ext] || [, ''])[1] })]);
+        }
+      } finally { db = prev; }
+    }
+    run("UPDATE meta SET value = CAST(value AS INTEGER) + ? WHERE key = 'rev'", [Math.max(memRev, 0) + 1], fresh);
+    await queue;
+    await idbTx(['blobs'], 'readwrite', t => { t.objectStore('blobs').clear(); });
+    if (db) db.close();
+    db = fresh;
+    await persist(blobs);
     for (const k in urls) { URL.revokeObjectURL(urls[k]); delete urls[k]; }
-    bump();
-    return { issues: o.issues.length, decisions: (o.decisions || []).length, files: (o.files || []).length };
+    return { issues: info.issues, decisions: info.decisions, files: info.files };
   }
   async function usage() {
     try { const e = await navigator.storage.estimate(); return { used: e.usage || 0, quota: e.quota || 0 }; } catch (er) { return null; }
@@ -181,40 +441,62 @@
   async function api(method, url, body) {
     const p = url.replace(/^\/api\//, '').split('?')[0];
     if (p === 'config' && method === 'GET') return { dataDir: '이 기기', ok: true, user: user(), version: window.QRQC_VERSION || '', suggest: '', window: false, browser: true };
+    if (p === 'version' && method === 'GET') { await queue; await syncFromStore(); return { version: String(memRev) }; }
     if (p === 'all' && method === 'GET') {
-      const [issues, decisions, s] = await Promise.all([getAll('issues'), getAll('decisions'), settings()]);
-      return { issues, decisions, production: [], settings: s, version: ls.get(LS_REV) || '0', dataDir: '이 기기', usedNos: issues.map(r => r.no),
-        db: { browser: true, lastBackup: ls.get(LS_BACKUP) || '', usage: await usage() } };
+      await queue; await syncFromStore();
+      return { issues: Object.values(loadIssues()), decisions: loadDecisions(), production: [], settings: settings(), version: String(memRev),
+        dataDir: '이 기기', usedNos: rows('SELECT no FROM issues').map(r => r.no),
+        db: { browser: true, sqlite: true, lastBackup: ls.get(LS_BACKUP) || '', usage: await usage(),
+          migrated: (one("SELECT value FROM meta WHERE key = 'json_migrated'") || {}).value || '' } };
     }
-    if (p === 'version' && method === 'GET') return { version: ls.get(LS_REV) || '0' };
     if (p === 'settings' && method === 'PUT') {
-      const cur = await settings();
-      if (body.lines) cur.lines = body.lines.map(s => String(s).trim()).filter(Boolean);
-      if (body.noFormat) cur.noFormat = String(body.noFormat).trim();
-      if (!cur.lines.length) throw err(400, '라인은 하나 이상 있어야 합니다');
-      await put('settings', { id: 'main', value: cur }); bump();
-      return cur;
+      return write(async () => {
+        const s = settings();
+        if (body.lines) { const l = body.lines.map(x => String(x).trim()).filter(Boolean); if (!l.length) throw err(400, '라인은 하나 이상 있어야 합니다'); s.lines = l; }
+        if (body.noFormat) s.noFormat = String(body.noFormat).trim();
+        for (const k of ['lines', 'noFormat']) run('INSERT INTO settings(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', [k, JSON.stringify(s[k])]);
+        return settings();
+      });
     }
-    const m = p.match(/^(issues|decisions)\/([A-Za-z0-9_.\-]{1,80})$/);
+    const m = p.match(/^(issues|decisions)\/([^/]+)$/);
     if (m) {
       const [, col, id] = m;
-      if (method === 'PUT') return saveDoc(col, id, body, 'put');
-      if (method === 'PATCH') return saveDoc(col, id, body, 'patch');
-      if (method === 'DELETE') { await deleteDoc(col, id); return { deleted: true }; }
+      if (!ID_RE.test(id)) throw err(400, '잘못된 문서 번호입니다');
+      const load = col === 'issues' ? loadIssue : (i => loadDecisions(i)[0] || null);
+      const save = col === 'issues' ? saveIssue : saveDecision;
+      if (method === 'GET') { const o = load(id); if (!o) throw err(404, '찾을 수 없습니다'); return o; }
+      if (method === 'PUT' || method === 'PATCH') {
+        return write(async () => {
+          let b = Object.assign({}, body); delete b.id;
+          if (method === 'PATCH') { const o = load(id); if (!o) throw err(404, '삭제된 항목입니다'); b = deepMerge(o, b); }
+          save(id, b);
+          return load(id);
+        });
+      }
+      if (method === 'DELETE') { await write(async () => { run(`UPDATE ${col} SET deleted_by = ?, deleted_at = ? WHERE id = ?`, [user(), nowStr(), id]); }); return { deleted: true }; }
     }
-    if (p === 'attach/delete') return { issue: await removeAttachment(body.att) };
+    if (p === 'attach/delete') {
+      return write(async () => {
+        const r = attRow(body.att);
+        run('UPDATE attachments SET deleted_by = ?, deleted_at = ? WHERE id = ?', [user(), nowStr(), r.id]);
+        run('UPDATE issues SET updated_by = ?, updated_at = ? WHERE id = ?', [user(), nowStr(), r.issue_id]);
+        return { issue: loadIssue(r.issue_id) };
+      });
+    }
     if (p === 'open') {
-      if (body.root || body.backups) throw err(400, '기기 저장 모드에서는 폴더가 없습니다. 설정 탭의 [백업 저장]으로 파일을 보관하세요');
-      const r = await fileRec(body.att);
-      window.open(await attUrl(body.att), '_blank', 'noopener');
+      if (body.root || body.backups) throw err(400, '기기 저장 모드에서는 폴더가 없습니다. 설정 탭의 [백업 파일 저장]으로 파일을 보관하세요');
+      const { r, blob } = await attBlob(body.att);
+      if (r.kind === 'img' || r.kind === 'pdf') window.open(await attUrl(body.att), '_blank', 'noopener');
+      else await deliver(blob, r.name);   // 엑셀 · 파워포인트는 브라우저가 직접 못 열므로 파일로 넘김 (아이폰: 공유 → Excel/PowerPoint)
       return { ok: true, name: r.name };
     }
-    if (p === 'attach/saveas') { const r = await fileRec(body.att); await deliver(r.blob, r.name); return { path: '' }; }
+    if (p === 'attach/saveas') { const { r, blob } = await attBlob(body.att); await deliver(blob, r.name); return { path: '' }; }
     if (p === 'export') { await deliver(new Blob(['﻿' + (body.text || '')], { type: 'text/csv' }), body.name || 'export.csv', 'QRQC 추적표'); return { path: body.name }; }
     if (p === 'backup') return backup();
     throw err(404, '지원하지 않는 요청입니다: ' + p);
   }
 
   window.QL = { init, api, upload, attUrl, backup, readBackup, restore,
+    sql(q, params) { return rows(q, params); },   // 개발 · 점검용: QL.sql("SELECT * FROM v_issues")
     setUser(n) { ls.set(LS_USER, String(n || '').trim()); }, get user() { return user(); }, get lastBackup() { return ls.get(LS_BACKUP) || ''; } };
 })();
