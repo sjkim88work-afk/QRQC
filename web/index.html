@@ -285,7 +285,7 @@ body.meet td.act.open .clamp{display:block;cursor:zoom-out}
       <span><i class="st Y">Y</i>조치 실행 중</span>
       <span><i class="st G">G</i>조치 완료</span>
       <span><i class="st NA">N/A</i>해당없음</span>
-      <span class="hint">· 상태 칸: R → Y → G → N/A 전환 · 칸 빈 곳을 누르면 상세 입력 창이 열립니다</span>
+      <span class="hint">· 상태 칸을 누르면 상세 입력 창이 열립니다 (상태 · 완료일자 · 확인자 · 상세내용 · 첨부)</span>
     </div>
     <div class="toolbar">
       <input id="q" type="search" placeholder="순번·품명·품번·담당 검색" aria-label="검색" style="width:210px">
@@ -426,7 +426,6 @@ const CRIT = [
   {k:'ll',   d:14, g:'14D',  ko:'교훈 반영',       en:'Lessons Learned'},
 ];
 const CK = Object.fromEntries(CRIT.map(c=>[c.k,c]));
-const CYCLE = {R:'Y', Y:'G', G:'NA', NA:'R'};
 const SLBL = {R:'R · 미착수',Y:'Y · 실행 중',G:'G · 완료',NA:'N/A · 해당없음'};
 
 /* ================= 데이터 ================= */
@@ -594,7 +593,7 @@ function renderLop(){
       <td class="issue">${esc(r.issue)}</td><td class="c" style="${r.recur==='재발'?'color:var(--bad);font-weight:600':''}">${esc(r.recur)}</td><td class="c mx">${esc(r.dept)}</td><td class="c">${esc(r.owner)}</td>
       <td class="c num" style="${!done&&nd<TD?'color:var(--bad);font-weight:600':''}">${done?'—':md(nd)}</td>
       ${CRIT.map(c=>{ const s=cState(r,c), d=cdOf(r,c.k), nf=(d.files||[]).length;
-        return `<td class="cr" data-k="${c.k}" title="${c.ko} 상세 열기"><span class="pd ${isOver(r,c)?'over':''}">${md(plan(r,c))}</span><button class="st ${s}" data-c="${c.k}" aria-label="${c.ko} ${s}, 눌러서 변경" title="${c.ko}${isOver(r,c)?' · 계획일 초과':''} — 눌러서 상태 변경">${s==='NA'?'N/A':s}</button><span class="att">${nf?CLIP+nf:''}${d.note&&!nf?'메모':''}</span></td>`; }).join('')}
+        return `<td class="cr" data-k="${c.k}" title="${c.ko} 상세 열기"><span class="pd ${isOver(r,c)?'over':''}">${md(plan(r,c))}</span><button class="st ${s}" data-c="${c.k}" aria-label="${c.ko} ${s}, 눌러서 상세 입력" title="${c.ko}${isOver(r,c)?' · 계획일 초과':''} — 눌러서 상세 입력">${s==='NA'?'N/A':s}</button><span class="att">${nf?CLIP+nf:''}${d.note&&!nf?'메모':''}</span></td>`; }).join('')}
       <td class="act"><div class="clamp">${esc(r.action)}</div></td><td class="c num">${md(r.fc)}</td><td class="c num mx">${md(r.ac)}</td><td class="c num mx">${md(r.cc)}</td></tr>`;
   }).join('') || `<tr><td colspan="${16+CRIT.length}" class="note">조건에 맞는 항목이 없습니다.</td></tr>`;
 }
@@ -603,10 +602,7 @@ $('frtBody').onclick=e=>{
   const r=byId(tr.dataset.id); if(!r) return;
   const act=e.target.closest('td.act');
   if(act && document.body.classList.contains('meet')){ act.classList.toggle('open'); return; }
-  const b=e.target.closest('button.st');
-  if(b){ const k=b.dataset.c, ns=CYCLE[crit(r,k)];
-    const p={crit:{[k]:ns}}; if(ns==='G' && !cdOf(r,k).done) p.cd={[k]:{done:TD}};
-    patchIssue(r.id,p); toast(`${r.no} · ${CK[k].ko} → ${ns==='NA'?'N/A':ns}`); return; }
+  // 상태 칸(버튼 포함)을 누르면 바로 바꾸지 않고 상세 입력 창을 엶 — 상태 · 완료일자 · 확인자 · 상세내용 · 첨부를 함께 기록
   const cell=e.target.closest('td.cr');
   if(cell){ openDetail(r.id, cell.dataset.k); return; }
   openEditor(r.id);
