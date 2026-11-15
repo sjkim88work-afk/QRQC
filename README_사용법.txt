@@ -41,11 +41,15 @@
  1. 아래 주소에서 QRQC-mac.zip 을 내려받아 더블클릭해 압축을 풉니다.
     https://github.com/sjkim88work-afk/QRQC/releases/latest/download/QRQC-mac.zip
  2. QRQC.app 을 [응용 프로그램] 폴더로 끌어 옮깁니다.
- 3. QRQC.app 을 우클릭(control+클릭) → [열기] → 경고 창에서 다시 [열기].
-    서명하지 않은 사내용 프로그램이라 처음 한 번만 이렇게 엽니다. 다음부터는 더블클릭.
-    - [열기] 버튼이 없으면: [완료]를 누르고(휴지통으로 이동은 누르지 마세요)
-      시스템 설정 → 개인정보 보호 및 보안 → 아래쪽 QRQC 의 [그래도 열기]
-    - 그래도 안 되면 터미널에서 한 번만: xattr -dr com.apple.quarantine /Applications/QRQC.app
+ 3. 터미널을 열고 아래 한 줄을 실행합니다. (처음 한 번 — 인터넷에서 받은 표시 지우기)
+      xattr -dr com.apple.quarantine /Applications/QRQC.app
+    그다음 QRQC.app 을 더블클릭하면 열립니다.
+    - 이 명령을 하지 않으면 "'QRQC'은(는) 손상되었기 때문에 열 수 없습니다"가 뜹니다.
+      파일이 망가진 것이 아니라 Apple 공증을 받지 않은 앱을 macOS가 막는 것입니다.
+      [휴지통으로 이동]은 누르지 말고 [취소]를 누른 뒤 위 명령을 실행하세요.
+    - "확인되지 않은 개발자" 경고만 뜨면 우클릭 → [열기], 또는 시스템 설정 → 개인정보 보호 및
+      보안 → [그래도 열기]로도 열 수 있습니다.
+    - 설치 없이 쓰려면 맥에서도 웹앱(https://sjkim88work-afk.github.io/QRQC/)을 Safari·Chrome으로 여세요.
  4. 데이터 폴더: 윈도우 PC들과 같은 공유폴더를 쓰려면 Finder → 이동 → 서버에 연결
     (smb://서버이름/공유폴더)로 연결한 뒤, 데이터 폴더 선택에서 그 폴더(/Volumes/…)를 고릅니다.
  5. PC별 설정은 ~/Library/Application Support/QRQC 에 저장됩니다.

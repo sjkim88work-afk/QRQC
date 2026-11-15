@@ -45,9 +45,13 @@ QIS 데스크톱과 같은 방식입니다. 윈도우 10·11과 맥(Apple Silico
 
 1. **[QRQC-mac.zip 내려받기](https://github.com/sjkim88work-afk/QRQC/releases/latest/download/QRQC-mac.zip)** → 더블클릭해 압축 풀기
 2. `QRQC.app`을 **응용 프로그램** 폴더로 끌어 옮기기
-3. `QRQC.app`을 **우클릭(control+클릭) › 열기** → 경고 창에서 다시 **열기** (서명하지 않은 사내용 프로그램이라 처음 한 번)
-   - **열기** 버튼이 없으면: **완료**(휴지통으로 이동은 누르지 않기) → **시스템 설정 › 개인정보 보호 및 보안** 아래쪽 `QRQC`의 **그래도 열기**
-   - 그래도 안 되면 터미널에서 한 번: `xattr -dr com.apple.quarantine /Applications/QRQC.app`
+3. **터미널**을 열고 아래 한 줄을 실행합니다 (인터넷에서 받은 표시 지우기 — 처음 한 번)
+   ```
+   xattr -dr com.apple.quarantine /Applications/QRQC.app
+   ```
+   - 이걸 하지 않으면 "'QRQC'은(는) 손상되었기 때문에 열 수 없습니다"가 뜹니다. 파일이 망가진 게 아니라 Apple 공증을 받지 않은 앱을 macOS가 막는 것이니 **[휴지통으로 이동]은 누르지 말고 [취소]** 후 위 명령을 실행하세요
+   - "확인되지 않은 개발자" 경고만 뜨면 **우클릭 › 열기**나 **시스템 설정 › 개인정보 보호 및 보안 › 그래도 열기**로도 열 수 있습니다
+   - 설치 없이 쓰려면 맥에서도 웹앱 주소(https://sjkim88work-afk.github.io/QRQC/)를 Safari·Chrome으로 열면 됩니다
 4. 데이터 폴더 지정 — 윈도우 PC들과 같은 공유폴더를 쓰려면 Finder › 이동 › 서버에 연결(`smb://서버/품질`)로 연결한 뒤 그 폴더(`/Volumes/…`)를 고릅니다
 
 관리자 권한은 필요 없습니다. 프로그램은 일반 사용자 권한(asInvoker)으로 실행되고, 설정은 `%LOCALAPPDATA%\QRQC`에 저장합니다.
