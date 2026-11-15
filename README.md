@@ -8,7 +8,7 @@
 - **회의 진행 순서 1~6**: 단계 버튼으로 해당 화면·필터 이동, 20분 경과 타이머
 - **신속대응 추적표**: Exit Criteria 9개 항목(24HR·2D·7D·9D·10D·14D) R/Y/G 관리
   - 계획일은 발견일 기준 자동 계산, 계획일 초과 시 자동 R
-  - 항목별 상세 입력 창: 완료일자·확인자·상세내용·첨부(PDF, 이미지, 엑셀 원본을 DB에 저장)
+  - 항목별 상세 입력 창: 완료일자·확인자·상세내용·첨부(PDF, 이미지, 엑셀, 파워포인트 원본을 DB에 저장)
   - 회의 모드, 화면 맞춤·배율, CSV(엑셀) 내보내기
 - **회의 결정사항**: 담당·기한 관리, 미완료 이월, 회의록 복사
 - **설정**: 데이터베이스 위치·백업, 라인(발견장소) 목록, 순번 형식(`{YYYY}` `{YY}` `{MM}` `{DD}` `{N…}`)
@@ -20,8 +20,10 @@
 - 주소: **https://sjkim88work-afk.github.io/QRQC/**
 - 아이폰: Safari로 열고 공유 버튼 › **홈 화면에 추가** → 앱처럼 실행
   - 추적표가 카드 목록으로 보이고, 항목 칸을 누르면 상세 입력 창이 열립니다. [사진 찍기]로 현장 사진을 바로 첨부합니다
-- 저장: 그 기기(브라우저)의 IndexedDB에 이슈 · 결정사항 · 설정 · 첨부 원본을 저장합니다. 인터넷이 없어도 동작합니다
-- **OneDrive 보관 · 기기 옮기기**: 설정 탭 [백업 파일 저장] → 첨부까지 담긴 `QRQC_백업_날짜.json` 하나
+- 저장: 데스크톱 프로그램과 **같은 구조의 SQLite 데이터베이스**(qrqc.db 스키마, [sql.js](https://sql.js.org))로 그 기기에 저장합니다. 첨부 원본은 화면 속도를 위해 브라우저 저장소에 따로 두고 백업 때 `attachments.data`(BLOB)에 넣습니다. 인터넷이 없어도 동작합니다
+- **OneDrive 보관 · 기기 옮기기**: 설정 탭 [백업 파일 저장] → 첨부까지 담긴 SQLite 파일 `QRQC_백업_날짜.db` 하나
+  - 이 파일은 데스크톱의 `qrqc.db`와 같은 형식: 이름을 `qrqc.db`로 바꿔 데이터 폴더에 넣으면 데스크톱 프로그램에서 그대로 열리고, DB Browser for SQLite · 엑셀 · Power BI에서 `v_issues` 뷰로 볼 수 있습니다
+  - 반대로 데스크톱의 `qrqc.db`를 웹앱 [백업 불러오기]로 고르면 아이폰에서 같은 내용을 봅니다 (v1.5.0의 .json 백업도 불러올 수 있음)
   - 아이폰은 공유 창 › **파일에 저장 › OneDrive**, PC는 내려받은 파일을 OneDrive 폴더에
   - 다른 기기에서 [백업 불러오기]로 그 파일을 고르면 같은 내용으로 이어서 씁니다 (그 기기 내용은 백업으로 바뀜)
   - 마지막 백업 후 7일이 지나면 알려 줍니다
@@ -72,7 +74,8 @@ QIS 데스크톱과 같은 방식입니다. 윈도우 10·11과 맥(Apple Silico
 ```
 app.py            내장 서버(127.0.0.1 전용) + 프로그램 창(pywebview, 없으면 브라우저)
 web/index.html    화면 (외부 CDN 없이 동작 · 데스크톱/웹앱 공용)
-web/local.js      웹앱 기본: 이 기기에 저장(IndexedDB) · 백업 파일 저장/불러오기
+web/local.js      웹앱 기본: 이 기기에 SQLite로 저장(sql.js, 데스크톱과 같은 스키마) · .db 백업 저장/불러오기
+web/lib/sql-wasm.*  SQLite 엔진 (sql.js, MIT)
 web/graph.js      웹앱 선택: Microsoft 365(Graph) 저장 · 로그인(web/lib/msal-browser)
 web/config.js     웹앱: OneDrive 실시간 연결용 앱 ID (비우면 기기 저장만)
 web/sw.js · web/manifest.webmanifest   홈 화면 앱(PWA)
@@ -96,7 +99,7 @@ exports/     [엑셀로 내보내기] CSV
 |---|---|
 | `issues` | 이슈 기본 정보 (순번, 발견일자, 차종, 품명, 품번, 발견장소, 문제내용, 조치사항, 완료일자 등) |
 | `issue_criteria` | 이슈별 Exit Criteria 9개 항목의 상태(R/Y/G/NA), 완료일자, 확인자, 상세내용 |
-| `attachments` | 첨부 원본(BLOB) — PDF, 이미지(png·jpg·gif·bmp·webp), 엑셀(xlsx·xlsm·xls·csv), 파일당 50MB |
+| `attachments` | 첨부 원본(BLOB) — PDF, 이미지(png·jpg·gif·bmp·webp·heic), 엑셀(xlsx·xlsm·xls·csv), 파워포인트(pptx·pptm·ppt), 파일당 50MB |
 | `decisions` | 회의 결정사항 |
 | `settings` | 라인 목록, 순번 형식 |
 | `v_issues` (뷰) | 이슈 + Exit Criteria 상태를 한 줄로 펼친 조회용 뷰 (엑셀·Power BI 연결용) |

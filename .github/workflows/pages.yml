@@ -31,6 +31,7 @@ jobs:
         run: |
           node --check web/graph.js
           node --check web/local.js
+          test -s web/lib/sql-wasm.js && test -s web/lib/sql-wasm.wasm
           node --check web/sw.js
           python3 -c "import json;json.load(open('web/manifest.webmanifest'))"
           grep -q "clientId" web/config.js

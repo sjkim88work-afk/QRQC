@@ -21,7 +21,7 @@
   const LS_FOLDER = 'qrqc-m365-folder';
   const LS_CACHE = 'qrqc-m365-cache-';
   const DEFAULT_SETTINGS = { lines: ['윈도우레귤레이터 1라인', '도어래치 조립 2라인', 'PSD 모터 조립', '프레스 3공정', '사출 성형'], noFormat: 'PHA-{YY}-{MM}-{NN}' };
-  const ALLOWED = { pdf: 'pdf', png: 'img', jpg: 'img', jpeg: 'img', gif: 'img', bmp: 'img', webp: 'img', heic: 'img', xlsx: 'sheet', xlsm: 'sheet', xls: 'sheet', csv: 'sheet' };
+  const ALLOWED = { pdf: 'pdf', png: 'img', jpg: 'img', jpeg: 'img', gif: 'img', bmp: 'img', webp: 'img', heic: 'img', xlsx: 'sheet', xlsm: 'sheet', xls: 'sheet', csv: 'sheet', pptx: 'slide', pptm: 'slide', ppt: 'slide' };
   const SIMPLE_MAX = 4 * 1024 * 1024, MAX_ATTACH = 50 * 1024 * 1024, CHUNK = 5 * 1024 * 1024;   // CHUNK: 320KiB 의 배수
 
   let pca = null, account = null, me = { name: '', mail: '' };
@@ -277,7 +277,7 @@
   /* ---------------- 첨부 */
   async function upload(issueId, crit, file) {
     const name = safeName(file.name), ext = (name.split('.').pop() || '').toLowerCase();
-    if (!ALLOWED[ext]) throw err(415, 'PDF, 이미지(JPG·PNG·HEIC 등), 엑셀(XLSX·XLS·CSV) 파일만 첨부할 수 있습니다');
+    if (!ALLOWED[ext]) throw err(415, 'PDF, 이미지(JPG·PNG·HEIC 등), 엑셀(XLSX·XLS·CSV), 파워포인트(PPTX·PPT) 파일만 첨부할 수 있습니다');
     if (file.size > MAX_ATTACH) throw err(413, '파일당 50MB까지 첨부할 수 있습니다');
     const fid = await ensureFolder(`files/${issueId}/${crit}`);
     let it;

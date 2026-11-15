@@ -33,7 +33,7 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlparse
 
-VERSION = '1.5.1'
+VERSION = '1.6.0'
 APP_TITLE = '공정품질 신속대응회의'
 IS_WIN = os.name == 'nt'
 DB_NAME = 'qrqc.db'
@@ -78,7 +78,7 @@ DEFAULT_SETTINGS = {
     'lines': ['윈도우레귤레이터 1라인', '도어래치 조립 2라인', 'PSD 모터 조립', '프레스 3공정', '사출 성형'],
     'noFormat': 'PHA-{YY}-{MM}-{NN}',
 }
-# 허용 첨부 형식: PDF, 이미지, 엑셀
+# 허용 첨부 형식: PDF, 이미지, 엑셀, 파워포인트 (웹앱 web/local.js 의 ALLOWED 와 같게)
 ALLOWED = {
     'pdf': ('pdf', 'application/pdf'),
     'png': ('img', 'image/png'), 'jpg': ('img', 'image/jpeg'), 'jpeg': ('img', 'image/jpeg'),
@@ -87,6 +87,10 @@ ALLOWED = {
     'xlsm': ('sheet', 'application/vnd.ms-excel.sheet.macroEnabled.12'),
     'xls': ('sheet', 'application/vnd.ms-excel'),
     'csv': ('sheet', 'text/csv'),
+    'heic': ('img', 'image/heic'),
+    'pptx': ('slide', 'application/vnd.openxmlformats-officedocument.presentationml.presentation'),
+    'pptm': ('slide', 'application/vnd.ms-powerpoint.presentation.macroEnabled.12'),
+    'ppt': ('slide', 'application/vnd.ms-powerpoint'),
 }
 
 # 화면 필드명 ↔ DB 열 이름
@@ -730,7 +734,7 @@ class Handler(BaseHTTPRequestHandler):
             ext = os.path.splitext(name)[1].lstrip('.').lower()
             if ext not in ALLOWED:
                 self.body_bytes(MAX_ATTACH * 4)
-                raise ApiError(415, 'PDF, 이미지(JPG·PNG 등), 엑셀(XLSX·XLS·CSV) 파일만 첨부할 수 있습니다')
+                raise ApiError(415, 'PDF, 이미지(JPG·PNG 등), 엑셀(XLSX·XLS·CSV), 파워포인트(PPTX·PPT) 파일만 첨부할 수 있습니다')
             data = self.body_bytes(MAX_ATTACH)
             if not data:
                 raise ApiError(400, '빈 파일입니다')
