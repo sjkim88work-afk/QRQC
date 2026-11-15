@@ -317,12 +317,12 @@ body.meet td.act.open .clamp{display:block;cursor:zoom-out}
 
   <!-- 설정 -->
   <section id="vSet" class="wrap" style="gap:12px" hidden>
-    <div class="card"><h2>데이터베이스 <small>이슈·Exit Criteria 상세·첨부·결정사항이 모두 qrqc.db 파일 하나에 저장됩니다</small></h2>
+    <div class="card"><h2 id="sHead">데이터베이스 <small>이슈·Exit Criteria 상세·첨부·결정사항이 모두 qrqc.db 파일 하나에 저장됩니다</small></h2>
       <div style="display:grid;gap:8px">
         <div class="path" id="sDir"></div>
         <div class="note" id="sDbInfo"></div>
-        <div class="toolbar"><button class="btn" id="sChange">폴더 변경</button><button class="btn" id="sOpen">탐색기에서 열기</button><button class="btn" id="sBackup">지금 백업</button><button class="btn" id="sBackups">백업 폴더 열기</button></div>
-        <p class="note" style="margin:0">팀이 함께 쓰려면 모두가 접근할 수 있는 공유폴더(예: \\서버\품질\신속대응)를 지정하고, 각자 PC에서 같은 폴더를 선택하세요. 프로그램을 켤 때 하루 한 번 backups 폴더에 자동 백업하고 최근 30개를 보관합니다. 삭제한 이슈·첨부는 데이터베이스에 삭제 표시만 남기므로 복구할 수 있습니다.</p>
+        <div class="toolbar" id="sTools"><button class="btn" id="sChange">폴더 변경</button><button class="btn" id="sOpen">탐색기에서 열기</button><button class="btn" id="sBackup">지금 백업</button><button class="btn" id="sBackups">백업 폴더 열기</button></div>
+        <p class="note" style="margin:0" id="sNote">팀이 함께 쓰려면 모두가 접근할 수 있는 공유폴더(예: \\서버\품질\신속대응)를 지정하고, 각자 PC에서 같은 폴더를 선택하세요. 프로그램을 켤 때 하루 한 번 backups 폴더에 자동 백업하고 최근 30개를 보관합니다. 삭제한 이슈·첨부는 데이터베이스에 삭제 표시만 남기므로 복구할 수 있습니다.</p>
       </div>
     </div>
     <div class="card"><h2>기준 정보 <small>모든 사용자에게 공통으로 적용됩니다</small></h2>
@@ -354,10 +354,21 @@ body.meet td.act.open .clamp{display:block;cursor:zoom-out}
 <script src="config.js"></script>
 <script src="lib/msal-browser.min.js"></script>
 <script src="graph.js"></script>
+<script src="local.js"></script>
 <script>
 /* ================= 기본 ================= */
-/* 데스크톱 프로그램(이 PC 안의 내장 서버 127.0.0.1)에서 열리면 'local', 그 밖(웹 주소 · 아이폰)은 Microsoft 365 'm365' */
-const MODE = (location.hostname==='127.0.0.1' && location.port) ? 'local' : 'm365';
+/* 화면이 열린 곳에 따라 저장 방식이 정해집니다
+   - 'local'  : 데스크톱 프로그램(이 PC 안의 내장 서버 127.0.0.1) → 공유폴더의 SQLite
+   - 'browser': 웹 주소 · 아이폰 (기본) → 이 기기(브라우저)에 저장. 로그인 · 앱 등록 필요 없음
+   - 'm365'   : 웹 주소에서 [OneDrive에 연결]을 고른 경우만 (config.js 에 앱 ID가 있을 때) */
+const WEB_MODE_KEY = 'qrqc-web-mode';
+const lsGet = k => { try{ return localStorage.getItem(k); }catch(e){ return null; } };
+const lsSet = (k,v) => { try{ v==null?localStorage.removeItem(k):localStorage.setItem(k,v); }catch(e){} };
+const M365_READY = !!(window.QRQC_CONFIG && window.QRQC_CONFIG.clientId);
+const MODE = (location.hostname==='127.0.0.1' && location.port) ? 'local' : (M365_READY && lsGet(WEB_MODE_KEY)==='m365' ? 'm365' : 'browser');
+const WEB = MODE!=='local';
+const STORE_API = MODE==='m365' ? window.QG : MODE==='browser' ? window.QL : null;
+function useWebMode(m){ lsSet(WEB_MODE_KEY, m==='m365'?'m365':null); location.reload(); }
 const $ = id => document.getElementById(id);
 const pad = n => String(n).padStart(2,'0');
 const fmt = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
@@ -380,7 +391,7 @@ async function copyText(txt){
     let ok=false; try{ ok=document.execCommand('copy'); }catch(_){} ta.remove(); return ok; }
 }
 async function api(method, url, body){
-  if(MODE==='m365') return window.QG.api(method, url, body);
+  if(STORE_API) return STORE_API.api(method, url, body);
   const opt={method, headers:{}};
   if(body!==undefined){ opt.headers['Content-Type']='application/json'; opt.body=JSON.stringify(body); }
   const r=await fetch(url,opt); const t=await r.text(); let d=null; try{ d=t?JSON.parse(t):null; }catch(e){}
@@ -427,7 +438,7 @@ const newId = () => 'i'+Date.now().toString(36)+Math.random().toString(36).slice
 
 function setBadge(ok, msg){
   const b=$('storeBadge'); b.className='store '+(ok?'ok':'err');
-  b.lastElementChild.textContent = ok ? (MODE==='m365'?`OneDrive 연결됨`:`데이터 폴더 연결됨`) : (msg||(MODE==='m365'?'Microsoft 365에 연결할 수 없음':'데이터 폴더에 연결할 수 없음'));
+  b.lastElementChild.textContent = ok ? (MODE==='m365'?`OneDrive 연결됨`:MODE==='browser'?`이 기기에 저장`:`데이터 폴더 연결됨`) : (msg||(MODE==='m365'?'Microsoft 365에 연결할 수 없음':'데이터 폴더에 연결할 수 없음'));
   b.title = CFG.dataDir||'';
 }
 async function loadAll(){
@@ -444,6 +455,7 @@ async function loadAll(){
       else if(e.status!==0) toast(e.message);
       return;
     }
+    if(MODE==='browser'){ toast(e.message||'불러오지 못했습니다'); return; }
     if(e.status===409) openSetup('데이터 폴더를 찾을 수 없습니다. 공유폴더 연결(네트워크)을 확인하거나 다른 폴더를 지정하세요.');
   }
 }
@@ -720,7 +732,7 @@ function openDetail(id,k){
       <label>확인자<input id="d-checker" value="${esc(d.checker||'')}" placeholder="${esc(CFG.user||'이름')}"></label>
       <label class="wide">상세내용<textarea id="d-note" style="min-height:140px" placeholder="실행 내용, 수량, 결과, 판정 근거 등">${esc(d.note||'')}</textarea></label>
     </div>
-    <div style="display:grid;gap:8px"><div class="sec">첨부자료 <span class="note" style="font-weight:400">· PDF, 이미지(JPG·PNG 등), 엑셀(XLSX·XLS·CSV) · 파일당 50MB까지 ${MODE==='m365'?'OneDrive·SharePoint 폴더에':'데이터베이스에'} 원본 저장</span></div>
+    <div style="display:grid;gap:8px"><div class="sec">첨부자료 <span class="note" style="font-weight:400">· PDF, 이미지(JPG·PNG 등), 엑셀(XLSX·XLS·CSV) · 파일당 50MB까지 ${MODE==='m365'?'OneDrive·SharePoint 폴더에':MODE==='browser'?'이 기기에':'데이터베이스에'} 원본 저장</span></div>
       <div class="files" id="dFiles"></div>
       <div class="drop" id="dDrop"><span>${matchMedia('(hover:none) and (pointer:coarse)').matches?'「사진 찍기」로 바로 찍어 올리거나, 「파일 선택」으로 사진·PDF·엑셀을 고르세요.':'파일을 여기로 끌어놓거나 「파일 선택」을 누르세요. 화면 캡처는 Ctrl+V(맥은 ⌘V)로 바로 붙여넣을 수 있습니다.'}</span>
         <span class="toolbar" style="justify-content:center"><label class="btn camera">사진 찍기<input id="dCam" type="file" accept="image/*" capture="environment" hidden></label><label class="btn">파일 선택<input id="dPick" type="file" multiple hidden accept=".pdf,.png,.jpg,.jpeg,.gif,.bmp,.webp,.heic,.xlsx,.xlsm,.xls,.csv"></label></span></div></div>
@@ -758,17 +770,17 @@ function renderDetailFiles(){
   const r=byId(dlg.id); if(!r){ closeDetail(); return; }
   const files=cdOf(r,dlg.k).files||[];
   $('dFiles').innerHTML=files.map((f,i)=>`<div class="fi">
-      <button class="th ${f.kind}" data-open="${i}" aria-label="${esc(f.name)} 열기">${f.kind==='img'?(MODE==='m365'?`<img data-att="${esc(f.id)}" alt="">`:`<img src="${attUrl(f.id)}" alt="" loading="lazy">`):esc((f.ext||'').toUpperCase()||'FILE')}</button>
+      <button class="th ${f.kind}" data-open="${i}" aria-label="${esc(f.name)} 열기">${f.kind==='img'?(WEB?`<img data-att="${esc(f.id)}" alt="">`:`<img src="${attUrl(f.id)}" alt="" loading="lazy">`):esc((f.ext||'').toUpperCase()||'FILE')}</button>
       <div class="nm"><b title="${esc(f.name)}">${esc(f.name)}</b><span class="note num">${fsize(f.size)} · ${md(f.at)}${f.by?` · ${esc(f.by)}`:''}</span></div>
       <div class="ac" data-i="${i}"><button class="btn sm" data-open="${i}">열기</button><button class="btn sm" data-saveas="${i}">저장</button><button class="btn sm del" data-rm="${i}">삭제</button></div></div>`).join('')
     || '<span class="note">아직 첨부된 자료가 없습니다.</span>';
-  if(MODE==='m365') $('dFiles').querySelectorAll('img[data-att]').forEach(async img=>{ try{ img.src=await window.QG.attUrl(img.dataset.att); }catch(e){} });
+  if(WEB) $('dFiles').querySelectorAll('img[data-att]').forEach(async img=>{ try{ img.src=await STORE_API.attUrl(img.dataset.att); }catch(e){} });
 }
 $('dlg').addEventListener('click',e=>{
   if(!dlg) return; const r=byId(dlg.id); if(!r) return; const files=cdOf(r,dlg.k).files||[];
   const o=e.target.closest('[data-open]'), v=e.target.closest('[data-saveas]'), m=e.target.closest('[data-rm]');
   if(o){ const f=files[+o.dataset.open]; if(f.kind==='img') viewImage(f); else openNative(f); }
-  else if(v){ api('POST','/api/attach/saveas',{att:files[+v.dataset.saveas].id}).then(r=>{ if(r.path) toast('저장했습니다: '+r.path); else if(MODE==='m365') toast('내려받기를 시작했습니다'); }).catch(er=>toast(er.message)); }
+  else if(v){ api('POST','/api/attach/saveas',{att:files[+v.dataset.saveas].id}).then(r=>{ if(r.path) toast('저장했습니다: '+r.path); else if(WEB) toast(MODE==='browser'?'파일을 내보냈습니다':'내려받기를 시작했습니다'); }).catch(er=>toast(er.message)); }
   else if(m){ m.parentElement.innerHTML=`<span class="confirm">삭제할까요? <button class="btn sm del" data-rmok="${m.dataset.rm}">삭제</button><button class="btn sm" data-rmno>취소</button></span>`; }
   else if(e.target.closest('[data-rmno]')) renderDetailFiles();
   else if(e.target.closest('[data-rmok]')) removeFile(+e.target.closest('[data-rmok]').dataset.rmok);
@@ -792,7 +804,7 @@ async function uploadAll(list){
     $('dMsg').textContent=`저장 중… ${file.name}`;
     try{
       let d;
-      if(MODE==='m365') d=await window.QG.upload(id,k,file);
+      if(WEB) d=await STORE_API.upload(id,k,file);
       else {
         const r=await fetch('/api/upload?'+new URLSearchParams({issue:id,crit:k,name:file.name}),{method:'POST',body:file});
         d=await r.json().catch(()=>({}));
@@ -811,12 +823,12 @@ async function removeFile(i){
 function openNative(f){ api('POST','/api/open',{att:f.id}).catch(e=>toast(e.message)); }
 let pvFile=null;
 async function viewImage(f){ pvFile=f; $('pvName').textContent=f.name; $('pv').hidden=false;
-  if(MODE==='m365'){ $('pvBody').innerHTML='<p class="note">불러오는 중…</p>'; try{ const u=await window.QG.attUrl(f.id); if(pvFile===f) $('pvBody').innerHTML=`<img src="${esc(u)}" alt="${esc(f.name)}">`; }catch(e){ $('pvBody').innerHTML=`<p class="note">${esc(e.message)}</p>`; } return; }
+  if(WEB){ $('pvBody').innerHTML='<p class="note">불러오는 중…</p>'; try{ const u=await STORE_API.attUrl(f.id); if(pvFile===f) $('pvBody').innerHTML=`<img src="${esc(u)}" alt="${esc(f.name)}">`; }catch(e){ $('pvBody').innerHTML=`<p class="note">${esc(e.message)}</p>`; } return; }
   $('pvBody').innerHTML=`<img src="${attUrl(f.id)}" alt="${esc(f.name)}">`; }
 function closeViewer(){ $('pv').hidden=true; $('pvBody').innerHTML=''; pvFile=null; }
 $('pvClose').onclick=closeViewer;
 $('pvOpen').onclick=()=>pvFile&&openNative(pvFile);
-if(MODE==='m365') $('pvOpen').textContent='원본 열기';
+if(WEB) $('pvOpen').textContent='원본 열기';
 document.addEventListener('keydown',e=>{ if(e.key!=='Escape') return; if(!$('pv').hidden) closeViewer(); else if(!$('ovl').hidden && !setupOpen) tryCloseDetail(); });
 
 /* ================= 엑셀 내보내기 ================= */
@@ -825,7 +837,7 @@ $('bExport').onclick=async()=>{
   const H=['진행현황','순번','발견일자','차종','품명','품번','발견장소','문제내용','재발유무','주관부서','담당','보고예정일',...CRIT.map(c=>`${c.g} ${c.ko}`),'조치사항','예상완료일자','실제완료일자','고객완료일자','첨부 수','최종수정'];
   const rows=filtered().map(r=>[overall(r),r.no,r.date,r.model,r.part,r.partNo,r.line,r.issue,r.recur,r.dept,r.owner,isDone(r)?'':nextDate(r),...CRIT.map(c=>{const s=cState(r,c);return s==='NA'?'N/A':`${s} (${md(plan(r,c))})`}),r.action,r.fc,r.ac,r.cc,nFiles(r),`${r.updatedBy||''} ${r.updatedAt||''}`.trim()]);
   const text=[H,...rows].map(a=>a.map(csvCell).join(',')).join('\r\n');
-  try{ await api('POST','/api/export',{name:`신속대응추적표_${TD.replace(/-/g,'')}.csv`, text}); toast('엑셀로 열었습니다 (데이터 폴더의 exports에 저장됨)'); }
+  try{ await api('POST','/api/export',{name:`신속대응추적표_${TD.replace(/-/g,'')}.csv`, text}); toast(WEB?'CSV 파일을 내보냈습니다 — 엑셀로 여세요':'엑셀로 열었습니다 (데이터 폴더의 exports에 저장됨)'); }
   catch(e){ toast(e.message); }
 };
 
@@ -955,12 +967,30 @@ $('bMinutes').onclick=async()=>{
 
 /* ================= 설정 ================= */
 function renderSettings(){
+  if(MODE==='browser'){
+    const u=DBI.usage, lb=window.QL.lastBackup;
+    $('sHead').innerHTML='데이터 저장 <small>이 기기(브라우저)에 저장됩니다 · 로그인 없음 · 인터넷이 없어도 동작</small>';
+    $('sDir').textContent=`이 기기 · 이슈 ${lop.length}건 · 결정사항 ${decs.length}건${u&&u.used?` · 사용 ${fsize(u.used)}`:''}`;
+    $('sDbInfo').innerHTML=`마지막 백업 ${lb?esc(lb.slice(0,16)):'<b style="color:var(--bad)">없음</b>'}`;
+    $('sTools').innerHTML=`<button class="btn pri" id="sBk" type="button">백업 파일 저장</button><button class="btn" id="sRs" type="button">백업 불러오기</button><input type="file" id="sRsFile" accept=".json,application/json" hidden>${M365_READY?'<span class="sp"></span><button class="btn" id="sM365" type="button">OneDrive에 실시간 연결…</button>':''}`;
+    $('sNote').innerHTML=`<b>OneDrive에 보관하기</b>: [백업 파일 저장]을 누르면 첨부까지 모두 담긴 백업 파일(.json) 하나가 만들어집니다. 아이폰은 공유 창에서 <b>파일에 저장 › OneDrive</b>를, PC는 내려받은 파일을 OneDrive 폴더에 넣으세요. 다른 기기에서는 [백업 불러오기]로 그 파일을 고르면 같은 내용으로 이어서 씁니다 (그 기기의 기존 내용은 백업 내용으로 바뀝니다).<br>데이터는 이 브라우저에만 있으므로 <b>일주일에 한 번 이상 백업</b>하세요. 아이폰은 Safari 공유 버튼 › <b>홈 화면에 추가</b>로 설치해서 쓰면 데이터가 지워지지 않습니다. 사생활 보호(비공개) 탭에서는 저장되지 않습니다.`;
+    $('sBk').onclick=doBackup;
+    $('sRs').onclick=()=>$('sRsFile').click();
+    $('sRsFile').onchange=e=>{ const f=e.target.files[0]; e.target.value=''; if(f) askRestore(f); };
+    if($('sM365')) $('sM365').onclick=()=>useWebMode('m365');
+    $('sQuitArea').innerHTML=`<label class="note" style="display:flex;gap:6px;align-items:center">내 이름 <input id="sMe" style="width:120px" value="${esc(window.QL.user)}" placeholder="수정자 기록용"></label>`;
+    $('sMe').onchange=()=>{ window.QL.setUser($('sMe').value); CFG.user=window.QL.user; $('who').textContent=CFG.user||'—'; toast('이름을 저장했습니다'); };
+    $('sInfo').innerHTML=`버전 ${esc(window.QRQC_VERSION||'')} · 웹앱 (이 기기에 저장) · 아이폰: Safari 공유 버튼 › 홈 화면에 추가`;
+    $('sLines').value=(S.lines||[]).join('\n'); $('sNoFmt').value=S.noFormat||'PHA-{YY}-{MM}-{NN}'; previewNo();
+    return;
+  }
   if(MODE==='m365'){
     $('sDir').textContent=(window.QG.folder&&window.QG.folder.name)||'(연결되지 않음)';
     $('sDbInfo').textContent=`Microsoft 365 · ${window.QG.me.name||''} ${window.QG.me.mail?'('+window.QG.me.mail+')':''} · 파일마다 버전 기록이 남고, 지운 항목은 OneDrive/SharePoint 휴지통에서 되살릴 수 있습니다`;
     $('sBackup').hidden=true; $('sBackups').hidden=true; $('sOpen').textContent='폴더 열기'; $('sChange').textContent='다른 폴더 연결';
-    $('sQuitArea').innerHTML='<button class="btn" id="sLogout" type="button">로그아웃</button>';
+    $('sQuitArea').innerHTML='<button class="btn" id="sToLocal" type="button">이 기기 저장으로 바꾸기</button> <button class="btn" id="sLogout" type="button">로그아웃</button>';
     $('sLogout').onclick=()=>window.QG.logout();
+    $('sToLocal').onclick=()=>useWebMode('browser');
     $('sInfo').innerHTML=`버전 ${esc(window.QRQC_VERSION||'')} · 웹앱 (Microsoft 365) · 아이폰: Safari 공유 버튼 › 홈 화면에 추가`;
     $('sLines').value=(S.lines||[]).join('\n'); $('sNoFmt').value=S.noFormat||'PHA-{YY}-{MM}-{NN}'; previewNo();
     return;
@@ -991,6 +1021,24 @@ function fmtError(f){
 function previewNo(){ const f=$('sNoFmt').value.trim(), e=fmtError(f); $('sNoPrev').textContent=e?e:nextNo(TD,f); $('sNoPrev').style.color=e?'var(--bad)':'var(--ink)'; }
 $('sNoFmt').addEventListener('input',previewNo);
 $('setForm').addEventListener('click',e=>{ const b=e.target.closest('[data-fmt]'); if(b){ $('sNoFmt').value=b.dataset.fmt; previewNo(); } });
+async function doBackup(){
+  try{ const r=await window.QL.backup(); renderSettings();
+    toast(r.how==='cancelled'?'백업을 취소했습니다':r.how==='shared'?'백업 파일을 보냈습니다 — OneDrive에 저장됐는지 확인하세요':`백업 파일을 내려받았습니다: ${r.name}`); }
+  catch(e){ toast(e.message||'백업하지 못했습니다'); }
+}
+async function askRestore(file){
+  let o; try{ o=await window.QL.readBackup(file); }catch(e){ toast(e.message); return; }
+  setupOpen=true; dlg=null;
+  $('dlg').innerHTML=`<h3 id="dlgT">백업 불러오기</h3>
+    <p style="margin:0"><b>${esc(file.name)}</b><br><span class="note">저장 ${esc(o.exportedAt||'')}${o.exportedBy?' · '+esc(o.exportedBy):''} · 이슈 ${o.issues.length}건 · 결정사항 ${(o.decisions||[]).length}건 · 첨부 ${(o.files||[]).length}개</span></p>
+    <p style="margin:0;color:var(--bad)">이 기기의 지금 내용(이슈 ${lop.length}건 · 결정사항 ${decs.length}건)은 지워지고 백업 내용으로 바뀝니다.</p>
+    <div class="toolbar"><button class="btn pri" id="rsOk" type="button">불러오기</button><button class="btn" id="rsNo" type="button">취소</button><span id="sMsg" class="note"></span></div>`;
+  $('ovl').hidden=false;
+  $('rsNo').onclick=()=>{ setupOpen=false; $('ovl').hidden=true; };
+  $('rsOk').onclick=async()=>{ $('sMsg').textContent='불러오는 중…';
+    try{ const n=await window.QL.restore(o); setupOpen=false; $('ovl').hidden=true; await loadAll(); renderSettings(); toast(`불러왔습니다: 이슈 ${n.issues}건 · 첨부 ${n.files}개`); }
+    catch(e){ $('sMsg').innerHTML=`<span style="color:var(--bad)">${esc(e.message)}</span>`; } };
+}
 $('sBackup').onclick=async()=>{ try{ const r=await api('POST','/api/backup'); DBI.lastBackup=r.lastBackup; renderSettings(); toast('백업했습니다: '+r.path); }catch(e){ toast(e.message); } };
 $('sBackups').onclick=()=>api('POST','/api/open',{backups:true}).catch(e=>toast(e.message));
 $('sOpen').onclick=()=>api('POST','/api/open',{root:true}).catch(e=>toast(e.message));
@@ -1016,9 +1064,10 @@ function openSetupM365(reason){
 }
 function m365Gate(title, html, btn, onClick){   // 로그인 전 · IT 등록 전 화면
   setupOpen=true; dlg=null;
-  $('dlg').innerHTML=`<div style="display:grid;gap:14px;justify-items:start"><img src="icons/icon-192.png" alt="" width="64" height="64" style="border-radius:14px"><h3 id="dlgT">${title}</h3>${html}${btn?`<button class="btn pri" id="gBtn" type="button">${btn}</button>`:''}</div>`;
+  $('dlg').innerHTML=`<div style="display:grid;gap:14px;justify-items:start"><img src="icons/icon-192.png" alt="" width="64" height="64" style="border-radius:14px"><h3 id="dlgT">${title}</h3>${html}<div class="toolbar">${btn?`<button class="btn pri" id="gBtn" type="button">${btn}</button>`:''}<button class="btn" id="gLocal" type="button">로그인 없이 이 기기에 저장해서 쓰기</button></div></div>`;
   $('ovl').hidden=false;
   if(btn) $('gBtn').onclick=onClick;
+  $('gLocal').onclick=()=>useWebMode('browser');
 }
 function openSetup(reason){
   if(MODE==='m365') return openSetupM365(reason);
@@ -1050,8 +1099,18 @@ function refresh(){
   $('mDate').textContent=TD;
   document.body.classList.toggle('meet',view.meet);
   refresh(); applyView();
+  if(WEB && 'serviceWorker' in navigator && location.protocol==='https:') navigator.serviceWorker.register('sw.js').catch(()=>{});
+  if(MODE==='browser'){
+    try{ await window.QL.init(); }catch(e){ setBadge(false,'저장소를 열 수 없음'); toast(e.message); return; }
+    CFG=await api('GET','/api/config');
+    $('who').textContent=CFG.user||'—';
+    await loadAll();
+    const lb=window.QL.lastBackup;
+    if(lop.length && (!lb || (Date.now()-new Date(lb.replace(' ','T')).getTime())>7*864e5))
+      setTimeout(()=>toast(lb?'마지막 백업 후 7일이 지났습니다 — 설정 탭에서 [백업 파일 저장]':'아직 백업이 없습니다 — 설정 탭에서 [백업 파일 저장]'),1200);
+    return;
+  }
   if(MODE==='m365'){
-    if('serviceWorker' in navigator && location.protocol==='https:') navigator.serviceWorker.register('sw.js').catch(()=>{});
     setBadge(false,'Microsoft 365 연결 중…');
     let st;
     try{ st=await window.QG.init(); }catch(e){ st={state:'error',message:e.message}; }

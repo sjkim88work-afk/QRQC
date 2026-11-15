@@ -13,19 +13,21 @@
 - **회의 결정사항**: 담당·기한 관리, 미완료 이월, 회의록 복사
 - **설정**: 데이터베이스 위치·백업, 라인(발견장소) 목록, 순번 형식(`{YYYY}` `{YY}` `{MM}` `{DD}` `{N…}`)
 
-## 아이폰 · 웹앱 (Microsoft 365)
+## 아이폰 · 웹앱 (설치 · 로그인 없음)
 
-설치 없이 브라우저로 씁니다. Microsoft 계정(개인 또는 회사)으로 로그인하고, OneDrive(또는 SharePoint) 폴더에 저장합니다.
+주소를 열면 바로 씁니다. 앱 등록이나 Microsoft 로그인이 필요 없습니다.
 
 - 주소: **https://sjkim88work-afk.github.io/QRQC/**
 - 아이폰: Safari로 열고 공유 버튼 › **홈 화면에 추가** → 앱처럼 실행
   - 추적표가 카드 목록으로 보이고, 항목 칸을 누르면 상세 입력 창이 열립니다. [사진 찍기]로 현장 사진을 바로 첨부합니다
-- 처음 한 번: 폴더 담당자가 [내 OneDrive에 새 폴더 만들기] → 그 폴더를 팀원과 **편집 가능**으로 공유 → 팀원은 공유 링크를 붙여넣어 연결
-- 저장: 이슈 1건 = JSON 파일 1개, 첨부는 `files/<이슈>/<항목>/`. 동시에 고치면 eTag로 충돌을 알아채 최신 내용에 합쳐 저장합니다. 지운 것은 OneDrive 휴지통, 파일마다 버전 기록이 남습니다
-- 준비: 앱 등록 → 받은 ID를 `web/config.js`에 입력 · 저장소 Settings › Pages › Source를 **GitHub Actions**로 설정
-  - 개인 OneDrive: [내 OneDrive에 연결하기](docs/개인_OneDrive_연결.md) (`tenantId: 'consumers'`, 회사 IT 불필요)
-  - 회사 계정: [IT 앱 등록 요청](docs/IT_앱등록_요청.md) (`tenantId`에 회사 테넌트 ID)
-- 데스크톱 프로그램(SQLite)과는 저장 위치가 다릅니다. 한 팀은 한 가지 방식으로 쓰세요
+- 저장: 그 기기(브라우저)의 IndexedDB에 이슈 · 결정사항 · 설정 · 첨부 원본을 저장합니다. 인터넷이 없어도 동작합니다
+- **OneDrive 보관 · 기기 옮기기**: 설정 탭 [백업 파일 저장] → 첨부까지 담긴 `QRQC_백업_날짜.json` 하나
+  - 아이폰은 공유 창 › **파일에 저장 › OneDrive**, PC는 내려받은 파일을 OneDrive 폴더에
+  - 다른 기기에서 [백업 불러오기]로 그 파일을 고르면 같은 내용으로 이어서 씁니다 (그 기기 내용은 백업으로 바뀜)
+  - 마지막 백업 후 7일이 지나면 알려 줍니다
+- 한계: 기기마다 따로 저장되므로 여러 사람이 실시간으로 같은 데이터를 보려면 데스크톱 프로그램(공유폴더)을 쓰세요
+- 선택: OneDrive 실시간 연결 — `web/config.js`에 앱 ID를 넣으면 설정 탭에 [OneDrive에 실시간 연결] 버튼이 생깁니다 (이슈 1건 = JSON 파일 1개, eTag 충돌 감지·병합)
+  - 개인 OneDrive: [내 OneDrive에 연결하기](docs/개인_OneDrive_연결.md) · 회사 계정: [IT 앱 등록 요청](docs/IT_앱등록_요청.md)
 
 ## 설치 (Python 필요 없음)
 
@@ -70,8 +72,9 @@ QIS 데스크톱과 같은 방식입니다. 윈도우 10·11과 맥(Apple Silico
 ```
 app.py            내장 서버(127.0.0.1 전용) + 프로그램 창(pywebview, 없으면 브라우저)
 web/index.html    화면 (외부 CDN 없이 동작 · 데스크톱/웹앱 공용)
-web/graph.js      웹앱: Microsoft 365(Graph) 저장 · 로그인(web/lib/msal-browser)
-web/config.js     웹앱: IT가 등록한 앱 ID
+web/local.js      웹앱 기본: 이 기기에 저장(IndexedDB) · 백업 파일 저장/불러오기
+web/graph.js      웹앱 선택: Microsoft 365(Graph) 저장 · 로그인(web/lib/msal-browser)
+web/config.js     웹앱: OneDrive 실시간 연결용 앱 ID (비우면 기기 저장만)
 web/sw.js · web/manifest.webmanifest   홈 화면 앱(PWA)
 1_run.bat         실행
 2_build_exe.bat   PyInstaller 빌드 (packaging/QRQC.spec, 폴더 방식)
