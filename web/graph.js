@@ -20,7 +20,7 @@
   const SCOPES = ['User.Read', 'Files.ReadWrite.All'];
   const LS_FOLDER = 'qrqc-m365-folder';
   const LS_CACHE = 'qrqc-m365-cache-';
-  const DEFAULT_SETTINGS = { lines: ['윈도우레귤레이터 1라인', '도어래치 조립 2라인', 'PSD 모터 조립', '프레스 3공정', '사출 성형'], noFormat: 'PHA-{YY}-{MM}-{NN}' };
+  const DEFAULT_SETTINGS = { lines: ['윈도우레귤레이터 1라인', '도어래치 조립 2라인', 'PSD 모터 조립', '프레스 3공정', '사출 성형'], noFormat: 'QRQC-{YY}-{MM}-{NN}' };
   const ALLOWED = { pdf: 'pdf', png: 'img', jpg: 'img', jpeg: 'img', gif: 'img', bmp: 'img', webp: 'img', heic: 'img', xlsx: 'sheet', xlsm: 'sheet', xls: 'sheet', csv: 'sheet', pptx: 'slide', pptm: 'slide', ppt: 'slide' };
   const SIMPLE_MAX = 4 * 1024 * 1024, MAX_ATTACH = 50 * 1024 * 1024, CHUNK = 5 * 1024 * 1024;   // CHUNK: 320KiB 의 배수
 

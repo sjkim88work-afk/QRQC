@@ -36,7 +36,7 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
-VERSION = '1.9.0'
+VERSION = '1.9.1'
 APP_TITLE = '공정품질 신속대응회의'
 IS_WIN = os.name == 'nt'
 DB_NAME = 'qrqc.db'
@@ -80,7 +80,7 @@ STATES = ('R', 'Y', 'G', 'NA')
 DEFAULT_SETTINGS = {
     'autoLogoutMin': 30,   # 로그인 후 조작이 없으면 보기 전용으로 돌아가는 시간(분)
     'lines': ['윈도우레귤레이터 1라인', '도어래치 조립 2라인', 'PSD 모터 조립', '프레스 3공정', '사출 성형'],
-    'noFormat': 'PHA-{YY}-{MM}-{NN}',
+    'noFormat': 'QRQC-{YY}-{MM}-{NN}',
 }
 # 허용 첨부 형식: PDF, 이미지, 엑셀, 파워포인트 (웹앱 web/local.js 의 ALLOWED 와 같게)
 ALLOWED = {
