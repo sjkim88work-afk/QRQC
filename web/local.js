@@ -19,7 +19,7 @@
   const SCHEMA_VERSION = 2;   // 2: 조치 · 진행 기록(issue_log), attachments.log_id
   const CRITS = ['cont', 'rca', 'act', 'ep', 'lpa', 'ver', 'pfmea', 'sw', 'll'];
   const STATES = ['R', 'Y', 'G', 'NA'];
-  const DEFAULT_SETTINGS = { lines: ['윈도우레귤레이터 1라인', '도어래치 조립 2라인', 'PSD 모터 조립', '프레스 3공정', '사출 성형'], noFormat: 'PHA-{YY}-{MM}-{NN}' };
+  const DEFAULT_SETTINGS = { lines: ['윈도우레귤레이터 1라인', '도어래치 조립 2라인', 'PSD 모터 조립', '프레스 3공정', '사출 성형'], noFormat: 'QRQC-{YY}-{MM}-{NN}' };
   // 허용 첨부: PDF · 이미지 · 엑셀 · 파워포인트  (데스크톱 app.py 의 ALLOWED 와 같게)
   const ALLOWED = {
     pdf: ['pdf', 'application/pdf'],
